@@ -1,0 +1,984 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body style="margin:0"><title>StackLab Court Booking</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+/* Layout: utility app. Top bar + tabs; owner side is calendar grid + action drawer (side on desktop, bottom sheet on phones). */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --fg: #17202c; --muted: #5b6676; --line: #d9dee6; --line-2: #edf0f4;
+  --accent: #1d5bd6; --accent-fg: #ffffff; --accent-soft: #e4ecfc;
+  --res: #d6e4ff; --res-ink: #133d91; --cls: #ece0ff; --cls-ink: #4b238f; --blk: #e3e6eb; --blk-ink: #3b4350;
+  --closed: #eceff3; --sel: #e8a317; --ok: #1d7a44; --ok-soft: #dcf2e4; --warn: #9a5b00; --warn-soft: #fdf0d8; --danger: #b42318; --danger-soft: #fde4e1;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif; --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --surface: #171e28; --fg: #e6ebf2; --muted: #9aa5b5; --line: #2c3644; --line-2: #212a36;
+  --accent: #6c9cff; --accent-fg: #0b1220; --accent-soft: #1c2b48;
+  --res: #1d3566; --res-ink: #cfe0ff; --cls: #35245a; --cls-ink: #e6d8ff; --blk: #2a313c; --blk-ink: #c9d0da;
+  --closed: #131920; --sel: #f0b43a; --ok: #5cc98a; --ok-soft: #173826; --warn: #f0b43a; --warn-soft: #3a2c10; --danger: #ff8a7a; --danger-soft: #45201c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --fg: #e6ebf2; --muted: #9aa5b5; --line: #2c3644; --line-2: #212a36;
+  --accent: #6c9cff; --accent-fg: #0b1220; --accent-soft: #1c2b48;
+  --res: #1d3566; --res-ink: #cfe0ff; --cls: #35245a; --cls-ink: #e6d8ff; --blk: #2a313c; --blk-ink: #c9d0da;
+  --closed: #131920; --sel: #f0b43a; --ok: #5cc98a; --ok-soft: #173826; --warn: #f0b43a; --warn-soft: #3a2c10; --danger: #ff8a7a; --danger-soft: #45201c; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.45 }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: .01em; margin: 0; text-wrap: balance }
+h2 { font-size: 26px } h3 { font-size: 20px }
+button, input, select, textarea { font: inherit; color: inherit }
+button { cursor: pointer }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.demo { background: var(--fg); color: var(--bg); font-size: 13px }
+.demo .wrap { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding-block: 8px }
+.demo .seg button { background: transparent; color: var(--bg); border: 1px solid color-mix(in srgb, var(--bg) 40%, transparent); padding: 4px 12px }
+.demo .seg button[aria-pressed="true"] { background: var(--bg); color: var(--fg) }
+.top { background: var(--surface); border-bottom: 1px solid var(--line) }
+.top .wrap { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 24px; padding-block: 14px 0 }
+.brand h1 { font-size: 30px; text-transform: uppercase; letter-spacing: .04em }
+.brand p { margin: 0 0 10px; color: var(--muted); font-size: 13px }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
+.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 12px; font-weight: 600; color: var(--muted); white-space: nowrap }
+.tabs button[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent) }
+main.wrap { padding-block: 20px 120px }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0 }
+.stack > *, .grid2 > *, .owner > * { min-width: 0 }
+.cal .tl:first-child { transform: none }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px }
+.muted { color: var(--muted) } .small { font-size: 13px }
+.lab { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--muted); margin-bottom: 6px }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 7px; font-weight: 600 }
+.btn:hover { border-color: var(--muted) }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent) }
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--line)) }
+.btn.danger.solid { background: var(--danger); color: var(--surface); border-color: var(--danger) }
+.btn.sm { padding: 4px 10px; font-size: 13px }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.seg { display: flex; flex-wrap: wrap; gap: 6px }
+.seg button { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 7px; font-weight: 600 }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent) }
+input[type=text], input[type=email], input[type=tel], input[type=number], input[type=date], select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 8px 10px; min-width: 0; max-width: 100% }
+input[type=number] { width: 90px }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.field > span { font-size: 13px; font-weight: 600; color: var(--muted) }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px }
+.check { display: flex; gap: 8px; align-items: center }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap }
+.pill.ok { background: var(--ok-soft); color: var(--ok) } .pill.warn { background: var(--warn-soft); color: var(--warn) }
+.pill.bad { background: var(--danger-soft); color: var(--danger) } .pill.info { background: var(--accent-soft); color: var(--accent) }
+.pill.gray { background: var(--blk); color: var(--blk-ink) }
+.err { background: var(--danger-soft); color: var(--danger); padding: 8px 12px; border-radius: 7px; font-weight: 600 }
+.flash { background: var(--ok-soft); color: var(--ok); padding: 10px 14px; border-radius: 8px; font-weight: 600; display: flex; justify-content: space-between; gap: 12px }
+.tbl { overflow-x: auto } table { border-collapse: collapse; width: 100%; font-size: 14px }
+th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--line); padding: 8px }
+td { border-bottom: 1px solid var(--line-2); padding: 8px; vertical-align: top }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap }
+.dates { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px }
+.dates button { flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; text-align: center; min-width: 58px; line-height: 1.2 }
+.dates button b { display: block; font-family: var(--display); font-size: 20px }
+.dates button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent) }
+.times { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px }
+.times button { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 8px 4px; font-weight: 600; font-variant-numeric: tabular-nums }
+.times button small { display: block; font-weight: 500; color: var(--muted); font-size: 12px }
+.times button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-fg) }
+.times button[aria-pressed="true"] small { color: var(--accent-fg) }
+.times button:disabled { text-decoration: line-through; opacity: .4; cursor: not-allowed }
+.courts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 420px }
+.court { border: 2px solid var(--muted); border-radius: 6px; display: grid; grid-template-rows: 1fr 1fr; aspect-ratio: 1 / 1.3; max-width: 100% }
+.court .cap { grid-column: 1; text-align: center; font-size: 12px; font-weight: 700; color: var(--muted) }
+.court button { border: 0; background: var(--surface); font-weight: 700; border-bottom: 2px dashed var(--line) }
+.court button + button { border-bottom: 0 }
+.court button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg) }
+.lines { display: flex; flex-direction: column; gap: 4px; font-size: 14px }
+.lines div { display: flex; justify-content: space-between; gap: 12px }
+.lines .tot { border-top: 1px solid var(--line); padding-top: 6px; font-weight: 700; font-size: 16px }
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 }
+dl.kv dt { color: var(--muted); font-size: 13px } dl.kv dd { margin: 0; font-weight: 600; min-width: 0 }
+/* owner */
+.owner { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start }
+.owner.has-panel { grid-template-columns: minmax(0, 1fr) 380px }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px }
+.panel .x { margin-left: auto }
+@media (max-width: 860px) {
+  .owner.has-panel { grid-template-columns: minmax(0, 1fr) }
+  .panel { position: fixed; left: 0; right: 0; bottom: 0; top: auto; max-height: 58vh; border-radius: 14px 14px 0 0; z-index: 20; box-shadow: 0 -8px 30px rgba(0,0,0,.25);
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) }
+}
+.calbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between }
+.calbar .date { font-family: var(--display); font-size: 24px; font-weight: 700; min-width: 0 }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--muted) }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px }
+.calhead, .cal { display: grid; grid-template-columns: 52px repeat(4, minmax(0, 1fr)) }
+.calhead { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line) }
+.calhead div { padding: 6px 4px; text-align: center; font-weight: 700; font-size: 13px; line-height: 1.15 }
+.calhead div small { display: block; color: var(--muted); font-weight: 500 }
+.cal { grid-template-rows: repeat(38, 26px); position: relative; user-select: none; -webkit-user-select: none }
+.cal .tl { font-size: 11px; color: var(--muted); text-align: right; padding-right: 6px; transform: translateY(-7px); font-variant-numeric: tabular-nums }
+.cal .cell { border: 0; border-top: 1px solid var(--line-2); border-left: 1px solid var(--line-2); background: var(--surface); padding: 0 }
+.cal .cell.hr { border-top-color: var(--line) }
+.cal .cell.div { border-right: 2px solid var(--muted) }
+.cal .cell.closed { background: repeating-linear-gradient(135deg, var(--closed) 0 6px, var(--surface) 6px 12px) }
+.cal .cell:hover { background: var(--accent-soft) }
+.cal .item { margin: 1px 2px; border-radius: 5px; border: 0; text-align: left; padding: 2px 6px; overflow: hidden; font-size: 12px; line-height: 1.25; z-index: 2; display: flex; flex-direction: column; min-width: 0 }
+.cal .item b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cal .item span { opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.k-res { background: var(--res); color: var(--res-ink); border-left: 4px solid var(--res-ink) !important }
+.k-class { background: var(--cls); color: var(--cls-ink); border-left: 4px solid var(--cls-ink) !important }
+.k-block { background: repeating-linear-gradient(135deg, var(--blk) 0 8px, color-mix(in srgb, var(--blk) 70%, var(--surface)) 8px 16px); color: var(--blk-ink); border-left: 4px solid var(--blk-ink) !important }
+.cal .selbox { border: 2px dashed var(--sel); background: color-mix(in srgb, var(--sel) 18%, transparent); border-radius: 5px; z-index: 3; pointer-events: none; margin: 1px }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px }
+.week button { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 4px; font-size: 12px; line-height: 1.25 }
+.week button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft) }
+.week b { display: block; font-size: 15px }
+.daytog { display: flex; gap: 3px; flex-wrap: wrap }
+.daytog button { border: 1px solid var(--line); background: var(--surface); border-radius: 5px; padding: 3px 6px; font-size: 12px; font-weight: 700; min-width: 36px }
+.daytog button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent) }
+.restog { display: flex; gap: 6px; flex-wrap: wrap }
+.restog button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 5px 10px; font-weight: 700; font-size: 13px }
+.restog button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent) }
+.rule { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px }
+.rule.special { border-color: var(--sel) }
+.rates { display: flex; flex-wrap: wrap; gap: 10px }
+.rates label { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: var(--muted); gap: 2px }
+.stat { display: flex; flex-direction: column } .stat b { font-family: var(--display); font-size: 28px; font-variant-numeric: tabular-nums }
+.confirm-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--danger-soft); padding: 6px 8px; border-radius: 7px; color: var(--danger); font-weight: 600; font-size: 13px }
+.done { border: 2px solid var(--ok); background: var(--ok-soft) }
+.done h2 { color: var(--ok) }
+@media (prefers-reduced-motion: no-preference) { .btn, .seg button, .times button { transition: background .12s, border-color .12s } }
+</style>
+
+<div id="app"></div>
+
+<script>
+/* ===================== helpers ===================== */
+const RES = [
+  { id: 'C1N', name: 'Court 1 North', court: 1, side: 'North' },
+  { id: 'C1S', name: 'Court 1 South', court: 1, side: 'South' },
+  { id: 'C2N', name: 'Court 2 North', court: 2, side: 'North' },
+  { id: 'C2S', name: 'Court 2 South', court: 2, side: 'South' },
+];
+const ALL = RES.map(r => r.id);
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const G0 = 300, G1 = 1440, NR = (G1 - G0) / 30;           // owner grid: 5:00 AM to midnight
+const pad = n => String(n).padStart(2, '0');
+const p4 = n => String(n).padStart(4, '0');
+const ds = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const TODAY = () => ds(new Date());
+const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return ds(d); };
+const addMonths = (s, n) => { const d = parse(s); const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last)); return ds(d); };
+const dow = s => parse(s).getDay();
+const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+const fmtT = m => { if (m >= 1440) return 'Midnight'; const h = Math.floor(m / 60), mm = m % 60; return `${h % 12 || 12}:${pad(mm)} ${h < 12 ? 'AM' : 'PM'}`; };
+const fmtTs = m => fmtT(m).replace(':00', '');
+const fmtD = (s, o = { weekday: 'short', month: 'short', day: 'numeric' }) => parse(s).toLocaleDateString('en-US', o);
+const fmtDur = m => { const h = Math.floor(m / 60), r = m % 60; return [h ? h + ' hr' : '', r ? r + ' min' : ''].filter(Boolean).join(' '); };
+const r2 = n => Math.round(n * 100) / 100;
+const money = n => { n = r2(n); const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }); return (n < 0 ? '−$' : '$') + s; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = p => p + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 7);
+const resIdx = id => ALL.indexOf(id);
+const sortRes = a => [...a].sort((x, y) => resIdx(x) - resIdx(y));
+const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
+function resLabel(ids) {
+  const s = new Set(ids); if (s.size === 4) return 'Entire gym';
+  const parts = [];
+  for (const c of [1, 2]) { const n = s.has(`C${c}N`), so = s.has(`C${c}S`);
+    if (n && so) parts.push(`Court ${c} (full)`); else if (n) parts.push(`Court ${c} North half`); else if (so) parts.push(`Court ${c} South half`); }
+  return parts.join(' + ');
+}
+function thanksgiving(y) { const first = new Date(y, 10, 1).getDay(); return ds(new Date(y, 10, 1 + ((4 - first + 7) % 7) + 21)); }
+const nextDow = (from, d) => { let x = from; while (dow(x) !== d) x = addDays(x, 1); return x; };
+const atISO = (date, m = 720) => `${date}T${pad(Math.floor(m / 60))}:${pad(m % 60)}:00`;
+const nowISO = () => { const d = new Date(); return atISO(ds(d), d.getHours() * 60 + d.getMinutes()); };
+
+/* ===================== state ===================== */
+const KEY = 'stacklab-demo-v1';
+let S;
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function load() {
+  try { const raw = localStorage.getItem(KEY); if (raw) { const v = JSON.parse(raw); if (v && v.v === 1) { S = v; return; } } } catch (e) {}
+  seed();
+}
+
+/* ===================== pricing ===================== */
+function ruleFor(date, m) {
+  const d = dow(date); let best = null, bs = -1, bi = -1;
+  S.rules.forEach((r, i) => {
+    const spec = !!(r.from || r.to);
+    if (spec && ((r.from && date < r.from) || (r.to && date > (r.to || r.from)))) return;
+    if (!r.days.includes(d) || m < r.start || m >= r.end) return;
+    const s = spec ? 1 : 0;
+    if (s > bs || (s === bs && i > bi)) { best = r; bs = s; bi = i; }
+  });
+  return best;
+}
+function units(resources) {
+  const s = new Set(resources); if (s.size === 4) return [{ type: 'gym', label: 'Entire gym' }];
+  const u = [];
+  for (const c of [1, 2]) { const n = s.has(`C${c}N`), so = s.has(`C${c}S`);
+    if (n && so) u.push({ type: 'full', label: `Court ${c} full` });
+    else if (n || so) { const id = `C${c}${n ? 'N' : 'S'}`; u.push({ type: 'half', res: id, label: RES[resIdx(id)].name + ' half' }); } }
+  return u;
+}
+function quote(date, resources, start, end) {
+  const lines = {}; let total = 0, missing = 0;
+  for (let m = start; m < end; m += 30) {
+    const r = ruleFor(date, m); if (!r) { missing++; continue; }
+    for (const u of units(resources)) {
+      const rate = Number(r[u.type]) + (u.type === 'half' ? Number(S.adj[u.res] || 0) : 0);
+      const k = `${r.id}|${u.label}|${rate}`;
+      lines[k] = lines[k] || { label: u.label, rule: r.name, rate, hours: 0, amount: 0 };
+      lines[k].hours += 0.5; lines[k].amount += rate / 2; total += rate / 2;
+    }
+  }
+  const ls = Object.values(lines).map(l => ({ ...l, amount: r2(l.amount) }));
+  return { total: r2(total), lines: ls, missing };
+}
+function linesHTML(lines, total, extra = '') {
+  return `<div class="lines">${lines.map(l => `<div><span>${esc(l.label)} · ${esc(l.rule)}<br><span class="muted small">${l.hours} hr × ${money(l.rate)}/hr</span></span><span class="num">${money(l.amount)}</span></div>`).join('')}
+    ${extra}<div class="tot"><span>Total</span><span class="num">${money(total)}</span></div></div>`;
+}
+
+/* ===================== schedule ===================== */
+const hoursOf = date => S.hours[dow(date)];
+function sessionsOf(c) {
+  const out = [];
+  for (let i = 0; i < c.weeks * 7; i++) { const d = addDays(c.startDate, i); if (c.days.includes(dow(d)) && !(c.skip || []).includes(d)) out.push(d); }
+  return out;
+}
+function blockOn(b, date) {
+  if (b.date) return b.date === date;
+  const r = b.repeat;
+  return r.days.includes(dow(date)) && date >= r.from && (!r.until || date <= r.until) && !(b.except || []).includes(date);
+}
+function itemsOn(date) {
+  const it = [];
+  for (const r of S.reservations) if (r.status === 'confirmed' && r.date === date) it.push({ kind: 'res', id: r.id, resources: r.resources, start: r.start, end: r.end, label: r.customer.name, ref: r });
+  for (const c of S.classes) if (c.status !== 'cancelled' && sessionsOf(c).includes(date)) it.push({ kind: 'class', id: c.id, resources: c.resources, start: c.start, end: c.end, label: c.name, ref: c });
+  for (const b of S.blocks) if (blockOn(b, date)) it.push({ kind: 'block', id: b.id, resources: b.resources, start: b.start, end: b.end, label: b.reason || 'Blocked', ref: b });
+  return it;
+}
+function conflict(date, resources, start, end, o = {}) {
+  return itemsOn(date).find(i => !(o.ignore && i.kind === o.ignore.kind && i.id === o.ignore.id) && !(o.ignoreBlocks && i.kind === 'block')
+    && i.start < end && start < i.end && i.resources.some(r => resources.includes(r)));
+}
+const kindName = k => ({ res: 'booking', class: 'class', block: 'block' }[k]);
+const describe = c => `${kindName(c.kind)} "${c.label}" (${fmtT(c.start)}–${fmtT(c.end)}, ${resLabel(c.resources)})`;
+
+/* ===================== money + messages ===================== */
+function charge(type, desc, amount, method, ref) {
+  const t = { id: uid('t'), at: nowISO(), type, desc, amount: r2(amount), method, ref };
+  S.txns.push(t); return t;
+}
+const refundedOf = t => r2(S.txns.filter(x => x.refundOf === t.id).reduce((a, x) => a - x.amount, 0));
+function refundTxn(t, amt, why) {
+  amt = r2(Math.min(amt, t.amount - refundedOf(t))); if (amt <= 0) return 0;
+  S.txns.push({ id: uid('t'), at: nowISO(), type: 'refund', desc: `Refund: ${t.desc}${why ? ' (' + why + ')' : ''}`, amount: -amt, method: t.method, ref: t.ref, refundOf: t.id });
+  if (t.ref && t.ref.kind === 'res') { const r = S.reservations.find(x => x.id === t.ref.id); if (r) r.paid = r2(r.paid - amt); }
+  if (t.ref && t.ref.kind === 'reg') { const g = S.regs.find(x => x.id === t.ref.id); if (g) g.paid = r2((g.paid || 0) - amt); }
+  return amt;
+}
+function refundRef(kind, id, amt, why) {
+  let left = amt;
+  for (const t of S.txns.filter(x => x.amount > 0 && x.ref && x.ref.kind === kind && x.ref.id === id)) { if (left <= 0) break; left = r2(left - refundTxn(t, left, why)); }
+  return r2(amt - left);
+}
+function notify(to, subject, body) { S.outbox.unshift({ id: uid('m'), at: nowISO(), to, subject, body }); }
+
+function createReservation(o) {
+  const r = { id: uid('r'), code: 'SL-' + (++S.seq), status: 'confirmed', date: o.date, resources: sortRes(o.resources), start: o.start, end: o.end,
+    customer: o.customer, total: r2(o.total), listTotal: o.listTotal ?? o.total, lines: o.lines, paid: 0, note: o.note || '', createdBy: o.by, createdAt: nowISO() };
+  S.reservations.push(r);
+  if (o.method !== 'unpaid' && r.total > 0) { charge('rental', `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, r.total, o.method, { kind: 'res', id: r.id }); r.paid = r.total; }
+  return r;
+}
+
+/* ===================== seed ===================== */
+function seed() {
+  const t = TODAY(); const y = parse(t).getFullYear();
+  let tg = thanksgiving(y); if (tg < t) tg = thanksgiving(y + 1);
+  S = { v: 1, seq: 1040,
+    hours: { 0: [480, 1260], 1: [360, 1380], 2: [360, 1380], 3: [360, 1380], 4: [360, 1380], 5: [360, 1380], 6: [420, 1380] },
+    dropIn: 10, membership: 59, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
+    rules: [
+      { id: 'r1', name: 'Standard', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: '', to: '', half: 40, full: 70, gym: 130 },
+      { id: 'r2', name: 'Early bird', days: [1, 2, 3, 4, 5], start: 0, end: 540, from: '', to: '', half: 30, full: 55, gym: 100 },
+      { id: 'r3', name: 'Weekday evening peak', days: [1, 2, 3, 4, 5], start: 1020, end: 1260, from: '', to: '', half: 55, full: 100, gym: 180 },
+      { id: 'r4', name: 'Weekend daytime peak', days: [0, 6], start: 540, end: 1080, from: '', to: '', half: 50, full: 90, gym: 165 },
+      { id: 'r5', name: 'Thanksgiving Day', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: tg, to: tg, half: 35, full: 60, gym: 110 },
+    ],
+    reservations: [], blocks: [], classes: [], regs: [], members: [], dropins: [], txns: [], outbox: [] };
+
+  S.blocks.push({ id: uid('b'), resources: ['C2N', 'C2S'], start: 1140, end: 1320, reason: 'Tomball Rec League', repeat: { days: [3], from: t, until: '' }, except: [] });
+  S.blocks.push({ id: uid('b'), date: addDays(t, 2), resources: ['C1S'], start: 360, end: 600, reason: 'Floor maintenance' });
+
+  const cls = (name, desc, resources, days, start, end, startDate, weeks, capacity, price) =>
+    ({ id: uid('c'), name, desc, resources, days, start, end, startDate, weeks, capacity, price, status: 'active', skip: [] });
+  const c1 = cls('Youth Skills (ages 8–12)', 'Ball handling, footwork and shooting form. Small groups by age.', ['C2N', 'C2S'], [2, 4], 1020, 1080, nextDow(t, 2), 6, 16, 120);
+  const c2 = cls('Shooting Clinic', 'Form shooting and game-speed reps for middle and high school players.', ['C1N'], [6], 540, 630, nextDow(t, 6), 4, 10, 80);
+  const c3 = cls('Girls Fundamentals (ages 10–14)', 'Fundamentals, team concepts and scrimmages.', ['C1N', 'C1S'], [0], 840, 930, nextDow(t, 0), 5, 14, 95);
+  S.classes.push(c1, c2, c3);
+
+  const P = [['Marcus Reed', 'marcus.reed@example.com', '281-555-0142'], ['Jaylen Brooks', 'jbrooks@example.com', '832-555-0177'], ['Tomball HS Alumni', 'alumni.hoops@example.com', '281-555-0109'],
+    ['Sofia Ramirez', 'sofia.r@example.com', '346-555-0121'], ['Northwest Elite AAU', 'nwelite@example.com', '713-555-0190'], ['Kevin Osei', 'kosei@example.com', '281-555-0155'],
+    ['Lone Star Church League', 'lscl@example.com', '832-555-0133'], ['Brianna Cole', 'bcole@example.com', '281-555-0168']];
+  const plan = [[0, ['C1N', 'C1S'], 1080, 1200, 0], [0, ['C2N'], 960, 1050, 1], [0, ALL, 1260, 1380, 2], [1, ['C1S'], 1020, 1110, 3], [1, ['C2N', 'C2S'], 1140, 1260, 4],
+    [2, ['C1N'], 420, 540, 5], [3, ALL, 600, 840, 6], [-1, ['C1N'], 1080, 1170, 0], [5, ['C2S'], 990, 1080, 7], [4, ['C1N', 'C1S'], 1080, 1200, 4]];
+  for (const [off, resources, start, end, p] of plan) {
+    const date = addDays(t, off); if (conflict(date, resources, start, end)) continue;
+    const q = quote(date, resources, start, end);
+    const r = createReservation({ date, resources, start, end, customer: { name: P[p][0], email: P[p][1], phone: P[p][2] }, total: q.total, lines: q.lines, method: p === 6 ? 'unpaid' : 'card', by: 'customer' });
+    S.txns.forEach(x => { if (x.ref && x.ref.id === r.id) x.at = atISO(addDays(date, -3), 600 + p * 7); });
+  }
+  const kids = [['Ethan Morales', 'morales.fam@example.com'], ['Ava Nguyen', 'nguyen.home@example.com'], ['Carter Williams', 'cwilliams@example.com'], ['Isaiah Johnson', 'ijohnson@example.com'],
+    ['Mia Patel', 'patel.family@example.com'], ['Noah Kim', 'kimhouse@example.com'], ['Zoe Martin', 'zmartin@example.com'], ['Liam Davis', 'ldavis@example.com']];
+  const reg = (c, k, n) => { const g = { id: uid('g'), classId: c.id, name: k[0], email: k[1], phone: '281-555-01' + (20 + n), status: 'active', paid: c.price, at: atISO(addDays(t, -5 - n)) };
+    S.regs.push(g); const x = charge('class', `${c.name}: ${k[0]}`, c.price, 'card', { kind: 'reg', id: g.id }); x.at = g.at; };
+  kids.slice(0, 5).forEach((k, n) => reg(c1, k, n)); kids.slice(5, 8).forEach((k, n) => reg(c2, k, n + 5)); [kids[1], kids[4]].forEach((k, n) => reg(c3, k, n + 8));
+
+  const mem = (name, email, startOff, cancelled) => {
+    const start = addDays(t, startOff); const m = { id: uid('m'), name, email, start, price: S.membership, status: cancelled ? 'cancelled' : 'active', nextBill: start, cancelledAt: '' };
+    while (m.nextBill <= t && !(cancelled && m.nextBill > addDays(t, -10))) { const x = charge('membership', `Open-gym membership: ${name}`, m.price, 'card', { kind: 'mem', id: m.id }); x.at = atISO(m.nextBill, 480); m.nextBill = addMonths(m.nextBill, 1); }
+    if (cancelled) m.cancelledAt = addDays(t, -20);
+    S.members.push(m); return m;
+  };
+  mem('Ava Thompson', 'ava.t@example.com', -40); mem('Chris Delgado', 'cdelgado@example.com', -10); mem('Priya Natarajan', 'priya.n@example.com', -70, true);
+  const ds2 = mem('DeShawn Carter', 'dcarter@example.com', -35);
+  const first = S.txns.find(x => x.ref && x.ref.id === ds2.id);
+  S.txns = S.txns.filter(x => !(x.ref && x.ref.id === ds2.id) || x === first); ds2.nextBill = addMonths(ds2.start, 1);
+  for (const [n, e, off] of [['Ryan Lee', 'rlee@example.com', 0], ['Grace Okafor', 'gokafor@example.com', -1]]) {
+    const d = { id: uid('d'), name: n, email: e, date: addDays(t, off), price: S.dropIn }; S.dropins.push(d);
+    const x = charge('dropin', `Open-gym drop-in: ${n} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id }); x.at = atISO(d.date, 540);
+  }
+  save();
+}
+
+/* ===================== UI state ===================== */
+const UI = {
+  view: 'customer', ctab: 'book', otab: 'calendar',
+  cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
+  cl: { open: null, name: '', email: '', phone: '', err: '', done: null },
+  og: { which: null, name: '', email: '', date: '', err: '', done: null },
+  my: { email: '' },
+  oc: { date: '', sel: null, extending: false },
+  panel: null, rf: { filter: 'upcoming', q: '' }, oclass: null, confirm: null, flash: '',
+};
+const ROOT = { get S() { return S; }, UI };
+function setPath(p, v) { const k = p.split('.'); let o = ROOT; for (let i = 0; i < k.length - 1; i++) o = o[k[i]]; o[k[k.length - 1]] = v; }
+function getPath(p) { return p.split('.').reduce((o, k) => (o == null ? o : o[k]), ROOT); }
+
+/* ===================== small renderers ===================== */
+const pressed = b => `aria-pressed="${b ? 'true' : 'false'}"`;
+const bind = (p, rr) => `id="${p}" data-bind="${p}"${rr ? ' data-rr' : ''}`;
+const txt = (p, label, type = 'text', ph = '') => `<label class="field"><span>${label}</span><input type="${type}" ${bind(p)} value="${esc(getPath(p))}" placeholder="${esc(ph)}"></label>`;
+function timeSel(p, from = 0, to = 1440) {
+  const v = getPath(p); let o = '';
+  for (let m = from; m <= to; m += 30) o += `<option value="${m}"${m === v ? ' selected' : ''}>${fmtT(m)}</option>`;
+  return `<select ${bind(p, true)} data-num>${o}</select>`;
+}
+const dateInp = (p, rr = true) => `<input type="date" ${bind(p, rr)} value="${esc(getPath(p))}">`;
+const resTog = (p) => { const v = getPath(p) || []; return `<div class="restog">${RES.map(r => `<button type="button" data-act="togArr" data-path="${p}" data-val="${r.id}" ${pressed(v.includes(r.id))}>${r.court}${r.side[0]}</button>`).join('')}
+  <button type="button" class="btn sm" data-act="setArr" data-path="${p}" data-val="${ALL.join(',')}">Entire gym</button></div>`; };
+const dayTog = (p) => { const v = getPath(p) || []; return `<div class="daytog">${DAYS.map((d, i) => `<button type="button" data-act="togArr" data-num data-path="${p}" data-val="${i}" ${pressed(v.includes(i))}>${d}</button>`).join('')}</div>`; };
+function askBtn(key, label, act, data = '', cls = 'btn danger') {
+  if (UI.confirm === key) return `<span class="confirm-line">Sure? <button class="btn sm danger solid" data-act="${act}" ${data}>Yes, ${label.toLowerCase()}</button><button class="btn sm" data-act="unask">No</button></span>`;
+  return `<button class="${cls}" data-act="ask" data-key="${key}">${label}</button>`;
+}
+
+/* ===================== customer site ===================== */
+function candidates() {
+  const c = UI.cs;
+  if (c.mode === 'half') return RES.map(r => [r.id]);
+  if (c.mode === 'full') return [['C1N', 'C1S'], ['C2N', 'C2S']];
+  if (c.mode === 'gym') return [ALL];
+  return c.custom.length ? [sortRes(c.custom)] : [];
+}
+function startOptions(date, dur) {
+  const h = hoursOf(date); if (!h) return [];
+  const sets = candidates(), out = [], today = date === TODAY(), nm = nowMin();
+  for (let m = h[0]; m + dur <= h[1]; m += 30) {
+    if (today && m <= nm) continue;
+    out.push({ m, set: sets.find(s => !conflict(date, s, m, m + dur)) || null });
+  }
+  return out;
+}
+function custBook() {
+  const c = UI.cs;
+  if (!c.date || c.date < TODAY()) c.date = TODAY();
+  if (c.done) { const r = S.reservations.find(x => x.id === c.done);
+    return `<section class="card done stack"><h2>You're booked</h2><p>Confirmation <b>${r.code}</b> was sent to ${esc(r.customer.email)}.</p>
+      <dl class="kv"><dt>Space</dt><dd>${resLabel(r.resources)}</dd><dt>Date</dt><dd>${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}</dd>
+      <dt>Time</dt><dd>${fmtT(r.start)} – ${fmtT(r.end)} (${fmtDur(r.end - r.start)})</dd><dt>Paid</dt><dd>${money(r.paid)}</dd></dl>
+      <div><button class="btn primary" data-act="bookAnother">Book another time</button></div></section>`; }
+  const h = hoursOf(c.date);
+  const maxDur = h ? h[1] - h[0] : 0;
+  if (c.dur > maxDur && maxDur) c.dur = maxDur;
+  const opts = startOptions(c.date, c.dur);
+  if (c.start != null && !opts.find(o => o.m === c.start && o.set)) c.start = null;
+  const days = Array.from({ length: 14 }, (_, i) => addDays(TODAY(), i));
+  let durOpts = ''; for (let m = 30; m <= Math.max(maxDur, 30); m += 30) durOpts += `<option value="${m}"${m === c.dur ? ' selected' : ''}>${fmtDur(m)}</option>`;
+  const modeBtn = (m, l) => `<button data-act="cmode" data-val="${m}" ${pressed(c.mode === m)}>${l}</button>`;
+  let html = `<section class="card stack"><h2>Book a court</h2>
+    <div><div class="lab">1 · Space</div><div class="seg">${modeBtn('half', 'Half court')}${modeBtn('full', 'Full court')}${modeBtn('gym', 'Entire gym')}${modeBtn('custom', 'Choose halves')}</div>
+    ${c.mode === 'custom' ? `<p class="small muted">Tap the halves you want. Pick any combination.</p><div class="courts">${[1, 2].map(n => `<div><div class="lab" style="text-align:center">Court ${n}</div><div class="court">${['N', 'S'].map(s => { const id = `C${n}${s}`; return `<button data-act="cpick" data-val="${id}" ${pressed(c.custom.includes(id))}>${s === 'N' ? 'North' : 'South'}</button>`; }).join('')}</div></div>`).join('')}</div>`
+      : `<p class="small muted">${c.mode === 'half' ? 'Any open half court. We assign the half when you book.' : c.mode === 'full' ? 'Court 1 or Court 2, whichever is open.' : 'Both courts, all four halves.'}</p>`}</div>
+    <div><div class="lab">2 · Day</div><div class="dates">${days.map(d => `<button data-act="cdate" data-val="${d}" ${pressed(d === c.date)}>${fmtD(d, { weekday: 'short' })}<b>${parse(d).getDate()}</b>${fmtD(d, { month: 'short' })}</button>`).join('')}</div>
+      <label class="small muted">Later date: ${dateInp('UI.cs.date')}</label></div>
+    <div><div class="lab">3 · How long</div><select ${bind('UI.cs.dur', true)} data-num>${durOpts}</select> <span class="small muted">Any length in 30-minute steps.</span></div>
+    <div><div class="lab">4 · Start time</div>`;
+  if (!h) html += `<p class="muted">The gym is closed on ${fmtD(c.date, { weekday: 'long' })}s.</p>`;
+  else if (!candidates().length) html += `<p class="muted">Choose at least one half court above.</p>`;
+  else if (!opts.length) html += `<p class="muted">No start times left on this day. Try another day.</p>`;
+  else html += `<div class="times">${opts.map(o => { const q = o.set ? quote(c.date, o.set, o.m, o.m + c.dur) : null;
+      return `<button data-act="cstart" data-val="${o.m}" ${pressed(o.m === c.start)} ${o.set ? '' : 'disabled aria-disabled="true"'}>${fmtT(o.m)}<small>${o.set ? money(q.total) : 'Taken'}</small></button>`; }).join('')}</div>`;
+  html += `</div>`;
+  if (c.start != null) {
+    const set = opts.find(o => o.m === c.start).set; const q = quote(c.date, set, c.start, c.start + c.dur);
+    html += `<div class="card stack" style="background:var(--bg)"><h3>Checkout</h3>
+      <dl class="kv"><dt>Space</dt><dd>${resLabel(set)}</dd><dt>Date</dt><dd>${fmtD(c.date, { weekday: 'long', month: 'long', day: 'numeric' })}</dd><dt>Time</dt><dd>${fmtT(c.start)} – ${fmtT(c.start + c.dur)}</dd></dl>
+      ${linesHTML(q.lines, q.total)}
+      <div class="fields">${txt('UI.cs.name', 'Name')}${txt('UI.cs.email', 'Email', 'email')}${txt('UI.cs.phone', 'Phone', 'tel')}${txt('UI.cs.card', 'Card number')}</div>
+      ${c.err ? `<div class="err">${esc(c.err)}</div>` : ''}
+      <div><button class="btn primary" data-act="cpay">Pay ${money(q.total)} and book</button></div>
+      <p class="small muted">Demo checkout: no card is charged. The live site would take payment through Stripe.</p></div>`;
+  }
+  return html + `</section>`;
+}
+function classSchedule(c) {
+  const ss = sessionsOf(c);
+  return `${c.days.map(d => DAYS[d]).join(' & ')} ${fmtT(c.start)}–${fmtT(c.end)} · ${ss.length ? fmtD(ss[0], { month: 'short', day: 'numeric' }) + ' – ' + fmtD(ss[ss.length - 1], { month: 'short', day: 'numeric' }) : 'no dates'} (${ss.length} sessions)`;
+}
+const enrolled = c => S.regs.filter(g => g.classId === c.id && g.status === 'active').length;
+function custClasses() {
+  const t = TODAY(), cl = UI.cl;
+  const list = S.classes.filter(c => c.status === 'active' && sessionsOf(c).some(d => d >= t));
+  return `<section class="stack"><h2>Classes</h2>${cl.done ? `<div class="flash">${esc(cl.done)}<button class="btn sm" data-act="cldone">OK</button></div>` : ''}
+    ${list.length ? '' : '<p class="muted">No classes are open for registration right now.</p>'}
+    <div class="grid2">${list.map(c => { const left = c.capacity - enrolled(c);
+      return `<div class="card stack"><div><h3>${esc(c.name)}</h3><p class="muted" style="margin:4px 0 0">${esc(c.desc)}</p></div>
+      <dl class="kv"><dt>When</dt><dd>${classSchedule(c)}</dd><dt>Where</dt><dd>${resLabel(c.resources)}</dd><dt>Price</dt><dd>${money(c.price)} for the full session</dd>
+      <dt>Spots</dt><dd>${left > 0 ? `${left} of ${c.capacity} left` : '<span class="pill bad">Full</span>'}</dd></dl>
+      ${cl.open === c.id ? `<div class="stack"><div class="fields">${txt('UI.cl.name', 'Player name')}${txt('UI.cl.email', 'Parent or player email', 'email')}${txt('UI.cl.phone', 'Phone', 'tel')}</div>
+        ${cl.err ? `<div class="err">${esc(cl.err)}</div>` : ''}<div class="row"><button class="btn primary" data-act="clpay" data-id="${c.id}">Pay ${money(c.price)} and register</button><button class="btn" data-act="clopen" data-id="">Cancel</button></div>
+        <p class="small muted">Demo checkout: no card is charged.</p></div>`
+        : `<div><button class="btn primary" data-act="clopen" data-id="${c.id}" ${left > 0 ? '' : 'disabled'}>Register</button></div>`}</div>`; }).join('')}</div></section>`;
+}
+function custOpenGym() {
+  const g = UI.og;
+  const form = (w, price) => g.which === w ? `<div class="stack"><div class="fields">${txt('UI.og.name', 'Name')}${txt('UI.og.email', 'Email', 'email')}${w === 'drop' ? `<label class="field"><span>Day</span>${dateInp('UI.og.date', false)}</label>` : ''}</div>
+      ${g.err ? `<div class="err">${esc(g.err)}</div>` : ''}<div class="row"><button class="btn primary" data-act="ogpay" data-val="${w}">Pay ${money(price)}${w === 'mem' ? ' / month' : ''}</button><button class="btn" data-act="ogopen" data-val="">Cancel</button></div>
+      <p class="small muted">Demo checkout: no card is charged.</p></div>` : `<div><button class="btn primary" data-act="ogopen" data-val="${w}">${w === 'mem' ? 'Start membership' : 'Buy a drop-in pass'}</button></div>`;
+  return `<section class="stack"><h2>Open gym</h2>${g.done ? `<div class="flash">${esc(g.done)}<button class="btn sm" data-act="ogdone">OK</button></div>` : ''}
+    <div class="grid2"><div class="card stack"><h3>Monthly membership</h3><div class="stat"><b>${money(S.membership)}</b><span class="muted">per month, billed automatically</span></div>
+      <p style="margin:0">Unlimited open-gym visits. Cancel anytime; access runs to the end of the paid month.</p>${form('mem', S.membership)}</div>
+    <div class="card stack"><h3>Single-day drop-in</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of open gym</span></div>
+      <p style="margin:0">No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
+}
+function custMine() {
+  const e = (UI.my.email || '').trim().toLowerCase();
+  let out = `<section class="card stack"><h2>My bookings</h2><div class="row"><label class="field" style="flex:1 1 240px"><span>Email used at checkout</span><input type="email" ${bind('UI.my.email', true)} value="${esc(UI.my.email)}" placeholder="you@example.com"></label><button class="btn primary" data-act="noop" style="align-self:end">Look up</button></div>`;
+  if (!e) return out + `<p class="small muted">Try marcus.reed@example.com to see a sample.</p></section>`;
+  const t = TODAY();
+  const rs = S.reservations.filter(r => r.customer.email.toLowerCase() === e).sort((a, b) => (b.date + p4(b.start)).localeCompare(a.date + p4(a.start)));
+  const gs = S.regs.filter(g => g.email.toLowerCase() === e);
+  const ms = S.members.filter(m => m.email.toLowerCase() === e);
+  const dd = S.dropins.filter(d => d.email.toLowerCase() === e);
+  if (!rs.length && !gs.length && !ms.length && !dd.length) return out + `<p class="muted">Nothing found for ${esc(e)}.</p></section>`;
+  if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Paid</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.paid)}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : '<span class="pill ok">Confirmed</span>'}</td></tr>`).join('')}</table></div></div>`;
+  if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}</p>`; }).join('')}</div>`;
+  if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}</p>`).join('')}</div>`;
+  if (dd.length) out += `<div><div class="lab">Drop-in passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}</p>`).join('')}</div>`;
+  return out + `</section>`;
+}
+
+/* ===================== owner ===================== */
+function memberStatus(m) {
+  const t = TODAY();
+  if (m.status === 'cancelled') return m.nextBill > t ? { key: 'cxl', html: `<span class="pill warn">Cancelled</span> access until ${fmtD(m.nextBill)}` } : { key: 'ended', html: `<span class="pill gray">Ended</span> ${fmtD(m.nextBill)}` };
+  if (m.nextBill < t) return { key: 'due', html: `<span class="pill bad">Past due</span> since ${fmtD(m.nextBill)}` };
+  return { key: 'ok', html: `<span class="pill ok">Active</span> renews ${fmtD(m.nextBill)}` };
+}
+function selBoxes(d) {
+  if (!d || d.date !== UI.oc.date || d.end <= d.start || !d.resources.length) return '';
+  const rs = Math.max(0, (d.start - G0) / 30), re = Math.min(NR, (d.end - G0) / 30); if (re <= rs) return '';
+  return runs(d.resources).map(([a, b]) => `<div class="selbox" style="grid-row:${rs + 1}/${re + 1};grid-column:${a + 2}/${b + 3}"></div>`).join('');
+}
+function runs(resources) {
+  const cols = resources.map(resIdx).sort((a, b) => a - b), out = [];
+  for (const c of cols) { const l = out[out.length - 1]; if (l && l[1] === c - 1) l[1] = c; else out.push([c, c]); }
+  return out;
+}
+function ownerCalendar() {
+  const date = UI.oc.date, h = hoursOf(date), items = itemsOn(date);
+  let g = '';
+  for (let r = 0; r < NR; r++) { const m = G0 + r * 30;
+    g += `<div class="tl" style="grid-row:${r + 1};grid-column:1">${m % 60 ? '' : fmtTs(m)}</div>`;
+    for (let c = 0; c < 4; c++) { const closed = !h || m < h[0] || m >= h[1];
+      g += `<button class="cell${closed ? ' closed' : ''}${m % 60 ? '' : ' hr'}${c === 1 ? ' div' : ''}" style="grid-row:${r + 1};grid-column:${c + 2}" data-r="${r}" data-c="${c}" aria-label="${RES[c].name}, ${fmtT(m)}${closed ? ' (outside open hours)' : ''}"></button>`; } }
+  for (const it of items) {
+    const rs = Math.max(0, (it.start - G0) / 30), re = Math.min(NR, (it.end - G0) / 30); if (re <= rs) continue;
+    const extra = it.kind === 'res' && it.ref.paid < it.ref.total ? ' · unpaid' : it.kind === 'class' ? ` · ${enrolled(it.ref)}/${it.ref.capacity}` : it.kind === 'block' && it.ref.repeat ? ' · weekly' : '';
+    for (const [a, b] of runs(it.resources)) g += `<button class="item k-${it.kind}" data-act="openItem" data-kind="${it.kind}" data-id="${it.id}" style="grid-row:${rs + 1}/${re + 1};grid-column:${a + 2}/${b + 3}"><b>${esc(it.label)}</b><span>${fmtTs(it.start)}–${fmtTs(it.end)}${extra}</span></button>`;
+  }
+  const p = UI.panel; g += `<span id="selwrap" style="display:contents">${p && p.type === 'sel' ? selBoxes(p.draft) : ''}</span>`;
+  const wk0 = addDays(date, -dow(date));
+  const week = Array.from({ length: 7 }, (_, i) => addDays(wk0, i)).map(d => { const its = itemsOn(d); const n = its.filter(i => i.kind === 'res').length;
+    return `<button data-act="odate" data-val="${d}" ${pressed(d === date)}>${DAYS[dow(d)]} ${parse(d).getDate()}<b>${n}</b>${n === 1 ? 'booking' : 'bookings'}${its.some(i => i.kind === 'block') ? '<br><span class="muted">blocked time</span>' : ''}</button>`; }).join('');
+  return `<div class="stack">
+    <div class="calbar"><div class="row"><button class="btn sm" data-act="odate" data-val="${addDays(date, -1)}" aria-label="Previous day">‹</button><span class="date">${fmtD(date, { weekday: 'long', month: 'short', day: 'numeric' })}</span><button class="btn sm" data-act="odate" data-val="${addDays(date, 1)}" aria-label="Next day">›</button>
+      <button class="btn sm" data-act="odate" data-val="${TODAY()}">Today</button>${dateInp('UI.oc.date')}</div>
+      <div class="row"><button class="btn sm" data-act="blockDay">Block whole day</button><button class="btn sm primary" data-act="newRes">New reservation</button></div></div>
+    <div class="week">${week}</div>
+    <p class="small muted" style="margin:0">Tap a free cell, then tap a second cell to stretch the selection across times and courts (or drag with a mouse). Tap any booking, class or block to change it.</p>
+    <div class="legend"><span><i style="background:var(--res)"></i>Rental</span><span><i style="background:var(--cls)"></i>Class</span><span><i style="background:var(--blk)"></i>Blocked</span><span><i style="background:var(--closed);border:1px solid var(--line)"></i>Outside open hours${h ? ` (open ${fmtT(h[0])}–${fmtT(h[1])})` : ' (closed today)'}</span></div>
+    <div class="card" style="padding:0;overflow:hidden"><div class="calhead"><div></div>${RES.map(r => `<div>Court ${r.court}<small>${r.side}</small></div>`).join('')}</div>
+      <div class="cal" id="cal">${g}</div></div></div>`;
+}
+function itemPanel(p) {
+  const it = itemsOn(p.date).find(i => i.kind === p.kind && i.id === p.id);
+  const head = (t) => `<div class="row"><h3>${t}</h3><button class="btn sm x" data-act="closePanel">Close</button></div>`;
+  if (!it) return head('Not found') + `<p class="muted">This item is no longer on ${fmtD(p.date)}.</p>`;
+  if (p.kind === 'res') { const r = it.ref, bal = r2(r.total - r.paid);
+    return head('Rental') + `<dl class="kv"><dt>Customer</dt><dd>${esc(r.customer.name)}</dd><dt>Contact</dt><dd>${esc(r.customer.email)}<br>${esc(r.customer.phone || '')}</dd>
+      <dt>When</dt><dd>${fmtD(r.date)}, ${fmtT(r.start)}–${fmtT(r.end)}</dd><dt>Space</dt><dd>${resLabel(r.resources)}</dd><dt>Code</dt><dd>${r.code}${r.createdBy === 'owner' ? ' <span class="pill info">added by owner</span>' : ''}</dd>
+      <dt>Price</dt><dd>${money(r.total)}${r.total !== r.listTotal ? ` <span class="muted small">(list ${money(r.listTotal)})</span>` : ''}</dd><dt>Paid</dt><dd>${money(r.paid)} ${bal > 0 ? `<span class="pill warn">${money(bal)} due</span>` : '<span class="pill ok">Paid</span>'}</dd>
+      ${r.note ? `<dt>Note</dt><dd>${esc(r.note)}</dd>` : ''}</dl>
+      ${linesHTML(r.lines, r.listTotal)}
+      <div class="row"><button class="btn primary" data-act="editRes" data-id="${r.id}">Edit or reschedule</button>${bal > 0 ? `<button class="btn" data-act="markPaid" data-id="${r.id}">Record ${money(bal)} paid (cash)</button>` : ''}<button class="btn danger" data-act="cancelRes" data-id="${r.id}">Cancel booking</button></div>`; }
+  if (p.kind === 'block') { const b = it.ref;
+    return head('Blocked time') + `<dl class="kv"><dt>Reason</dt><dd>${esc(b.reason || '—')}</dd><dt>Space</dt><dd>${resLabel(b.resources)}</dd><dt>Time</dt><dd>${fmtT(b.start)}–${fmtT(b.end)}</dd>
+      <dt>Repeats</dt><dd>${b.repeat ? `Every ${b.repeat.days.map(d => DAYS[d]).join(', ')} from ${fmtD(b.repeat.from)}${b.repeat.until ? ' to ' + fmtD(b.repeat.until) : ', no end date'}` : 'No (this date only)'}</dd></dl>
+      <div class="row">${b.repeat ? `<button class="btn primary" data-act="unblockOne" data-id="${b.id}">Unblock ${fmtD(p.date)} only</button>${askBtn('series' + b.id, 'Delete whole series', 'unblockAll', `data-id="${b.id}"`)}` : `<button class="btn primary" data-act="unblockAll" data-id="${b.id}">Unblock</button>`}</div>`; }
+  const c = it.ref;
+  return head('Class session') + `<dl class="kv"><dt>Class</dt><dd>${esc(c.name)}</dd><dt>Schedule</dt><dd>${classSchedule(c)}</dd><dt>Space</dt><dd>${resLabel(c.resources)}</dd><dt>Enrolled</dt><dd>${enrolled(c)} of ${c.capacity}</dd></dl>
+    <div class="row"><button class="btn" data-act="goClass" data-id="${c.id}">Open class & roster</button>${askBtn('sess' + c.id, `Cancel ${fmtD(p.date)} session`, 'cancelSession', `data-id="${c.id}"`)}</div>
+    <p class="small muted">Cancelling one session frees the court for that day and emails everyone registered.</p>`;
+}
+function selPanel(p) {
+  const d = p.draft, h = hoursOf(d.date);
+  const q = d.end > d.start && d.resources.length ? quote(d.date, d.resources, d.start, d.end) : null;
+  return `<div class="row"><h3>Selected time</h3><button class="btn sm x" data-act="closePanel">Close</button></div>
+    <label class="field"><span>Date</span>${dateInp('UI.panel.draft.date')}</label>
+    <div class="field"><span>Courts</span>${resTog('UI.panel.draft.resources')}</div>
+    <div class="field"><span>Time</span><div class="row">${timeSel('UI.panel.draft.start', 0, 1410)} to ${timeSel('UI.panel.draft.end', 30, 1440)}<button class="btn sm" data-act="allDay">All day</button></div></div>
+    ${q ? `<p class="small muted" style="margin:0">${resLabel(d.resources)} · ${fmtDur(d.end - d.start)} · rents for ${money(q.total)} at current prices</p>` : ''}
+    <div class="card stack" style="padding:12px"><div class="lab" style="margin:0">Block it</div>
+      ${txt('UI.panel.draft.reason', 'Reason (shown on your calendar)', 'text', 'League, private event, maintenance…')}
+      <label class="check"><input type="checkbox" ${bind('UI.panel.draft.repeat', true)} ${d.repeat ? 'checked' : ''}> Repeat every week</label>
+      ${d.repeat ? `<div class="field"><span>On</span>${dayTog('UI.panel.draft.days')}</div><label class="field"><span>Until (leave empty for no end)</span>${dateInp('UI.panel.draft.until', false)}</label>` : ''}
+      ${d.err ? `<div class="err">${esc(d.err)}</div>` : ''}
+      <div><button class="btn primary" data-act="doBlock">Block this time</button></div></div>
+    <div class="row"><button class="btn" data-act="selToRes">Reserve it for a customer…</button></div>
+    ${!h ? '<p class="small muted">The gym is normally closed this day. You can still block or book it.</p>' : ''}`;
+}
+function resPanel(p) {
+  const d = p.draft, r = p.id ? S.reservations.find(x => x.id === p.id) : null;
+  const ok = d.end > d.start && d.resources.length;
+  const q = ok ? quote(d.date, d.resources, d.start, d.end) : { total: 0, lines: [] };
+  let priceUI;
+  if (!r) {
+    const disc = Number(d.discount) || 0, ov = d.override === '' || d.override == null ? null : Number(d.override);
+    const fin = ov != null ? ov : r2(q.total * (1 - disc / 100));
+    priceUI = `${linesHTML(q.lines, fin, ov != null ? `<div><span>Price override</span><span class="num">${money(ov)}</span></div>` : disc ? `<div><span>Discount ${disc}%</span><span class="num">−${money(q.total - fin)}</span></div>` : '')}
+      <div class="row"><label class="field"><span>Discount %</span><input type="number" min="0" max="100" ${bind('UI.panel.draft.discount', true)} data-num value="${esc(d.discount)}"></label>
+      <label class="field"><span>Or set total $</span><input type="number" min="0" step="0.01" ${bind('UI.panel.draft.override', true)} data-num value="${esc(d.override)}"></label></div>
+      <label class="field"><span>Payment</span><select ${bind('UI.panel.draft.method')}><option value="card"${d.method === 'card' ? ' selected' : ''}>Charge card now</option><option value="cash"${d.method === 'cash' ? ' selected' : ''}>Paid at desk (cash/check)</option><option value="unpaid"${d.method === 'unpaid' ? ' selected' : ''}>Collect later</option></select></label>`;
+  } else {
+    const diff = r2(q.total - r.total);
+    priceUI = `<p style="margin:0">Booked at <b>${money(r.total)}</b>; ${money(r.paid)} paid.</p>
+      <label class="check"><input type="radio" name="rp" data-act="setv" data-path="UI.panel.draft.reprice" data-val="" ${!d.reprice ? 'checked' : ''}> Keep the price as booked</label>
+      <label class="check"><input type="radio" name="rp" data-act="setv" data-path="UI.panel.draft.reprice" data-val="1" ${d.reprice ? 'checked' : ''}> Re-price at today's rates: ${money(q.total)} ${diff ? `(${diff > 0 ? 'charge ' + money(diff) : 'refund ' + money(-diff)})` : '(no change)'}</label>`;
+  }
+  return `<div class="row"><h3>${r ? 'Edit ' + r.code : 'New reservation'}</h3><button class="btn sm x" data-act="closePanel">Close</button></div>
+    <div class="fields">${txt('UI.panel.draft.name', 'Customer name')}${txt('UI.panel.draft.email', 'Email', 'email')}${txt('UI.panel.draft.phone', 'Phone', 'tel')}</div>
+    <label class="field"><span>Date</span>${dateInp('UI.panel.draft.date')}</label>
+    <div class="field"><span>Courts</span>${resTog('UI.panel.draft.resources')}</div>
+    <div class="field"><span>Time</span><div class="row">${timeSel('UI.panel.draft.start', 0, 1410)} to ${timeSel('UI.panel.draft.end', 30, 1440)}</div></div>
+    ${priceUI}
+    ${txt('UI.panel.draft.note', 'Internal note')}
+    <label class="check"><input type="checkbox" ${bind('UI.panel.draft.overBlocks')} ${d.overBlocks ? 'checked' : ''}> Book over blocked time (owner override)</label>
+    <label class="check"><input type="checkbox" ${bind('UI.panel.draft.notify')} ${d.notify ? 'checked' : ''}> Email the customer ${r ? 'about the change' : 'a confirmation'}</label>
+    ${d.err ? `<div class="err">${esc(d.err)}</div>` : ''}
+    <div class="row"><button class="btn primary" data-act="saveRes">${r ? 'Save changes' : 'Create reservation'}</button><button class="btn" data-act="closePanel">Discard</button></div>`;
+}
+function cancelPanel(p) {
+  const r = S.reservations.find(x => x.id === p.id), d = p.draft;
+  return `<div class="row"><h3>Cancel ${r.code}</h3><button class="btn sm x" data-act="closePanel">Close</button></div>
+    <p style="margin:0">${esc(r.customer.name)} · ${resLabel(r.resources)} · ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)} · paid ${money(r.paid)}</p>
+    <div class="field"><span>Refund</span><label class="check"><input type="radio" name="rf" data-act="setv" data-path="UI.panel.draft.refund" data-val="full" ${d.refund === 'full' ? 'checked' : ''}> Full refund (${money(r.paid)})</label>
+      <label class="check"><input type="radio" name="rf" data-act="setv" data-path="UI.panel.draft.refund" data-val="none" ${d.refund === 'none' ? 'checked' : ''}> No refund</label></div>
+    <div class="field"><span>Afterwards the time is</span><label class="check"><input type="radio" name="af" data-act="setv" data-path="UI.panel.draft.after" data-val="release" ${d.after === 'release' ? 'checked' : ''}> Open for booking again</label>
+      <label class="check"><input type="radio" name="af" data-act="setv" data-path="UI.panel.draft.after" data-val="keep" ${d.after === 'keep' ? 'checked' : ''}> Kept blocked</label></div>
+    ${txt('UI.panel.draft.reason', 'Reason (included in the email)')}
+    <label class="check"><input type="checkbox" ${bind('UI.panel.draft.notify')} ${d.notify ? 'checked' : ''}> Email the customer</label>
+    <div class="row"><button class="btn danger solid" data-act="doCancel">Cancel booking</button><button class="btn" data-act="closePanel">Keep booking</button></div>`;
+}
+function classPanel(p) {
+  const d = p.draft;
+  return `<div class="row"><h3>${p.id ? 'Edit class' : 'New class'}</h3><button class="btn sm x" data-act="closePanel">Close</button></div>
+    ${txt('UI.panel.draft.name', 'Class name')}${txt('UI.panel.draft.desc', 'Description')}
+    <div class="field"><span>Court space it reserves</span>${resTog('UI.panel.draft.resources')}</div>
+    <div class="field"><span>Meets on</span>${dayTog('UI.panel.draft.days')}</div>
+    <div class="field"><span>Time</span><div class="row">${timeSel('UI.panel.draft.start', 0, 1410)} to ${timeSel('UI.panel.draft.end', 30, 1440)}</div></div>
+    <div class="row"><label class="field"><span>First week starts</span>${dateInp('UI.panel.draft.startDate', false)}</label>
+      <label class="field"><span>Weeks</span><input type="number" min="1" max="52" ${bind('UI.panel.draft.weeks')} data-num value="${d.weeks}"></label></div>
+    <div class="row"><label class="field"><span>Capacity</span><input type="number" min="1" ${bind('UI.panel.draft.capacity')} data-num value="${d.capacity}"></label>
+      <label class="field"><span>Price $</span><input type="number" min="0" ${bind('UI.panel.draft.price')} data-num value="${d.price}"></label></div>
+    ${d.err ? `<div class="err">${esc(d.err)}</div>` : ''}
+    ${d.conflicts ? `<label class="check"><input type="checkbox" ${bind('UI.panel.draft.skipConf')} ${d.skipConf ? 'checked' : ''}> Skip the ${d.conflicts} conflicting date(s) and save</label>` : ''}
+    <div class="row"><button class="btn primary" data-act="saveClass">${p.id ? 'Save class' : 'Create class'}</button><button class="btn" data-act="closePanel">Discard</button></div>
+    <p class="small muted">Each session reserves this space on the calendar, so nobody can rent it at the same time.</p>`;
+}
+function ownerReservations() {
+  const t = TODAY(), nm = nowMin(), f = UI.rf.filter, q = (UI.rf.q || '').toLowerCase();
+  let list = S.reservations.filter(r => {
+    if (q && !(r.customer.name + ' ' + r.customer.email + ' ' + r.code).toLowerCase().includes(q)) return false;
+    if (f === 'cancelled') return r.status === 'cancelled';
+    if (r.status !== 'confirmed') return false;
+    const past = r.date < t || (r.date === t && r.end <= nm);
+    return f === 'upcoming' ? !past : f === 'today' ? r.date === t : past;
+  });
+  list.sort((a, b) => (a.date + p4(a.start)).localeCompare(b.date + p4(b.start)) * (f === 'past' || f === 'cancelled' ? -1 : 1));
+  const fb = (k, l) => `<button data-act="rfilter" data-val="${k}" ${pressed(f === k)}>${l}</button>`;
+  return `<div class="stack"><div class="calbar"><h2>Reservations</h2><button class="btn primary" data-act="newRes">New reservation</button></div>
+    <div class="row"><div class="seg">${fb('upcoming', 'Upcoming')}${fb('today', 'Today')}${fb('past', 'Past')}${fb('cancelled', 'Cancellation history')}</div>
+      <input type="text" ${bind('UI.rf.q', true)} value="${esc(UI.rf.q)}" placeholder="Search name, email or code"></div>
+    <div class="card tbl" style="padding:0"><table><tr><th>When</th><th>Space</th><th>Customer</th><th class="num">Price</th><th class="num">Paid</th><th>${f === 'cancelled' ? 'Cancellation' : ''}</th></tr>
+    ${list.map(r => `<tr><td>${fmtD(r.date)}<br><span class="muted">${fmtT(r.start)}–${fmtT(r.end)}</span></td><td>${resLabel(r.resources)}</td><td>${esc(r.customer.name)}<br><span class="muted small">${esc(r.customer.email)} · ${r.code}</span></td>
+      <td class="num">${money(r.total)}</td><td class="num">${money(r.paid)}${r.status === 'confirmed' && r.paid < r.total ? '<br><span class="pill warn">due</span>' : ''}</td>
+      <td>${r.status === 'cancelled' ? `<span class="small">${fmtD(r.cancel.at.slice(0, 10))} · ${r.cancel.refund ? 'refunded ' + money(r.cancel.refund) : 'no refund'} · time ${r.cancel.keep ? 'kept blocked' : 'released'}${r.cancel.reason ? '<br>“' + esc(r.cancel.reason) + '”' : ''}</span>` : `<button class="btn sm" data-act="showRes" data-id="${r.id}">Open</button>`}</td></tr>`).join('') || `<tr><td colspan="6" class="muted">Nothing here.</td></tr>`}</table></div>
+    <h3>Customer emails sent</h3>
+    <div class="card tbl" style="padding:0"><table><tr><th>Sent</th><th>To</th><th>Message</th></tr>${S.outbox.slice(0, 30).map(m => `<tr><td class="small">${new Date(m.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td class="small">${esc(m.to)}</td><td><b>${esc(m.subject)}</b><br><span class="small muted">${esc(m.body)}</span></td></tr>`).join('') || '<tr><td colspan="3" class="muted">No emails yet. Confirmations, changes and cancellations show up here.</td></tr>'}</table></div>
+    <p class="small muted">Demo: these are shown here instead of being emailed.</p></div>`;
+}
+function ownerPricing() {
+  const t = TODAY();
+  const rule = (r, i) => `<div class="rule${r.from || r.to ? ' special' : ''}"><div class="row"><input type="text" ${bind(`S.rules.${i}.name`, true)} value="${esc(r.name)}" style="font-weight:700;flex:1 1 180px">
+      ${r.from || r.to ? '<span class="pill warn">Special dates</span>' : ''}<button class="btn sm" data-act="ruleMove" data-i="${i}" data-val="-1" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="btn sm" data-act="ruleMove" data-i="${i}" data-val="1" ${i < S.rules.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button>${askBtn('rule' + r.id, 'Delete', 'ruleDel', `data-i="${i}"`, 'btn sm danger')}</div>
+    <div class="row">${dayTog(`S.rules.${i}.days`)}<span>${timeSel(`S.rules.${i}.start`, 0, 1410)} to ${timeSel(`S.rules.${i}.end`, 30, 1440)}</span></div>
+    ${r.from || r.to ? `<div class="row small">Dates ${dateInp(`S.rules.${i}.from`)} to ${dateInp(`S.rules.${i}.to`)}</div>` : ''}
+    <div class="rates"><label>Half court $/hr<input type="number" min="0" ${bind(`S.rules.${i}.half`, true)} data-num value="${r.half}"></label><label>Full court $/hr<input type="number" min="0" ${bind(`S.rules.${i}.full`, true)} data-num value="${r.full}"></label><label>Entire gym $/hr<input type="number" min="0" ${bind(`S.rules.${i}.gym`, true)} data-num value="${r.gym}"></label></div></div>`;
+  const pd = UI.pdate || t; const h = hoursOf(pd); let prev = '';
+  if (h) { let seg = null; const segs = [];
+    for (let m = h[0]; m < h[1]; m += 30) { const r = ruleFor(pd, m); const k = r ? r.id : '-'; if (!seg || seg.k !== k) { seg = { k, r, s: m, e: m + 30 }; segs.push(seg); } else seg.e = m + 30; }
+    prev = `<table><tr><th>Time</th><th>Rate</th><th class="num">Half</th><th class="num">Full</th><th class="num">Gym</th></tr>${segs.map(s => `<tr><td>${fmtT(s.s)}–${fmtT(s.e)}</td><td>${s.r ? esc(s.r.name) : '<span class="pill bad">No price</span>'}</td><td class="num">${s.r ? money(s.r.half) : ''}</td><td class="num">${s.r ? money(s.r.full) : ''}</td><td class="num">${s.r ? money(s.r.gym) : ''}</td></tr>`).join('')}</table>`;
+  } else prev = '<p class="muted">Closed that day.</p>';
+  return `<div class="stack"><h2>Pricing</h2>
+    <p class="muted" style="margin:0">Every 30 minutes is priced on its own, so a booking that runs from off-peak into peak pays each rate for its share. When two rules cover the same time, the one lower in the list wins, and a special-dates rule beats any weekly rule. Price changes apply to new bookings only; existing bookings keep the price they were booked at.</p>
+    <div class="grid2" style="align-items:start"><div class="stack">${S.rules.map(rule).join('')}
+      <div class="row"><button class="btn" data-act="ruleAdd">Add weekly rule</button><button class="btn" data-act="ruleAdd" data-val="special">Add special-dates rule</button></div></div>
+    <div class="stack"><div class="card stack"><h3>Check a day's prices</h3>${(UI.pdate = pd, '')}<label class="field"><span>Date</span>${dateInp('UI.pdate')}</label><div class="tbl">${prev}</div></div>
+      <div class="card stack"><h3>Half-court adjustments</h3><p class="small muted" style="margin:0">Add or subtract dollars per hour for a specific half (for example, the half with the better hoops). Applies to half-court rentals only.</p>
+        <div class="rates">${RES.map(r => `<label>${r.name}<input type="number" ${bind(`S.adj.${r.id}`, true)} data-num value="${S.adj[r.id]}"></label>`).join('')}</div></div>
+      <div class="card stack"><h3>Open gym</h3><div class="rates"><label>Drop-in $<input type="number" min="0" ${bind('S.dropIn', true)} data-num value="${S.dropIn}"></label><label>Membership $/month<input type="number" min="0" ${bind('S.membership', true)} data-num value="${S.membership}"></label></div>
+        <p class="small muted" style="margin:0">A membership price change applies to new members; current members keep their rate.</p></div></div></div></div>`;
+}
+function ownerClasses() {
+  return `<div class="stack"><div class="calbar"><h2>Classes</h2><button class="btn primary" data-act="newClass">New class</button></div>
+    ${S.classes.map(c => { const regs = S.regs.filter(g => g.classId === c.id && g.status === 'active');
+      return `<div class="card stack"><div class="row"><h3 style="flex:1 1 200px">${esc(c.name)}</h3>${c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : `<span class="pill ${regs.length >= c.capacity ? 'bad' : 'ok'}">${regs.length}/${c.capacity} enrolled</span>`}</div>
+      <p class="muted" style="margin:0">${classSchedule(c)} · ${resLabel(c.resources)} · ${money(c.price)}</p>
+      <div class="row"><button class="btn sm" data-act="roster" data-id="${c.id}">${UI.oclass === c.id ? 'Hide roster' : 'Roster'}</button>${c.status === 'active' ? `<button class="btn sm" data-act="editClass" data-id="${c.id}">Edit</button>${askBtn('cxr' + c.id, 'Cancel class and refund all', 'cancelClass', `data-id="${c.id}" data-val="refund"`, 'btn sm danger')}${askBtn('cxn' + c.id, 'Cancel class, no refunds', 'cancelClass', `data-id="${c.id}" data-val="none"`, 'btn sm danger')}` : ''}</div>
+      ${UI.oclass === c.id ? `<div class="tbl"><table><tr><th>Player</th><th>Contact</th><th class="num">Paid</th><th></th></tr>${regs.map(g => `<tr><td>${esc(g.name)}</td><td class="small">${esc(g.email)}<br>${esc(g.phone || '')}</td><td class="num">${money(g.paid || 0)}</td><td>${askBtn('rr' + g.id, 'Remove + refund', 'removeReg', `data-id="${g.id}" data-val="refund"`, 'btn sm danger')} ${askBtn('rn' + g.id, 'Remove', 'removeReg', `data-id="${g.id}" data-val="none"`, 'btn sm')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nobody registered yet.</td></tr>'}</table></div>` : ''}</div>`; }).join('')}</div>`;
+}
+function ownerMembers() {
+  const due = S.members.filter(m => m.status === 'active' && m.nextBill <= TODAY());
+  return `<div class="stack"><div class="calbar"><h2>Memberships</h2><button class="btn primary" data-act="runBilling" ${due.length ? '' : 'disabled'}>Bill ${due.length} due member${due.length === 1 ? '' : 's'} now</button></div>
+    <p class="muted small" style="margin:0">Members are billed every month on their start date. In the live site Stripe runs the billing on its own; this button stands in for that.</p>
+    <div class="card tbl" style="padding:0"><table><tr><th>Member</th><th>Since</th><th class="num">Rate</th><th>Status</th><th></th></tr>
+    ${S.members.map(m => { const st = memberStatus(m); return `<tr><td>${esc(m.name)}<br><span class="small muted">${esc(m.email)}</span></td><td>${fmtD(m.start)}</td><td class="num">${money(m.price)}/mo</td><td>${st.html}</td>
+      <td>${m.status === 'active' ? `${st.key === 'due' ? `<button class="btn sm" data-act="billOne" data-id="${m.id}">Charge ${money(m.price)}</button> ` : ''}${askBtn('mc' + m.id, 'Cancel', 'memCancel', `data-id="${m.id}"`, 'btn sm danger')}` : `<button class="btn sm" data-act="memReact" data-id="${m.id}">Reactivate</button>`}</td></tr>`; }).join('')}</table></div>
+    <div class="card stack"><h3>Add a member</h3><div class="fields">${txt('UI.nm.name', 'Name')}${txt('UI.nm.email', 'Email', 'email')}</div>${UI.nm.err ? `<div class="err">${esc(UI.nm.err)}</div>` : ''}
+      <div><button class="btn" data-act="memAdd">Add and charge ${money(S.membership)}</button></div></div>
+    <h3>Drop-ins</h3><div class="card tbl" style="padding:0"><table><tr><th>Day</th><th>Name</th><th class="num">Paid</th></tr>${[...S.dropins].reverse().map(d => `<tr><td>${fmtD(d.date)}</td><td>${esc(d.name)}<br><span class="small muted">${esc(d.email)}</span></td><td class="num">${money(d.price)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None yet.</td></tr>'}</table></div></div>`;
+}
+function ownerPayments() {
+  const t = TODAY(), mo = t.slice(0, 7);
+  const sum = f => r2(S.txns.filter(f).reduce((a, x) => a + x.amount, 0));
+  const list = [...S.txns].sort((a, b) => b.at.localeCompare(a.at));
+  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Drop-in', refund: 'Refund', adjustment: 'Adjustment' };
+  return `<div class="stack"><h2>Payments</h2>
+    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="card stat"><span class="muted small">Today (net)</span><b>${money(sum(x => x.at.slice(0, 10) === t))}</b></div>
+      <div class="card stat"><span class="muted small">This month (net)</span><b>${money(sum(x => x.at.slice(0, 7) === mo))}</b></div>
+      <div class="card stat"><span class="muted small">Refunds this month</span><b>${money(-sum(x => x.amount < 0 && x.at.slice(0, 7) === mo))}</b></div>
+      <div class="card stat"><span class="muted small">Unpaid rentals</span><b>${money(S.reservations.filter(r => r.status === 'confirmed').reduce((a, r) => a + Math.max(0, r.total - r.paid), 0))}</b></div></div>
+    <div class="card tbl" style="padding:0"><table><tr><th>When</th><th>Type</th><th>Description</th><th>Method</th><th class="num">Amount</th><th></th></tr>
+    ${list.map(x => { const left = x.amount > 0 ? r2(x.amount - refundedOf(x)) : 0;
+      return `<tr><td class="small">${new Date(x.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${TL[x.type] || x.type}</td><td>${esc(x.desc)}</td><td class="small">${x.method === 'card' ? 'Card' : 'Cash/desk'}</td>
+      <td class="num" style="color:${x.amount < 0 ? 'var(--danger)' : 'inherit'}">${money(x.amount)}</td><td>${x.amount > 0 ? (left > 0 ? askBtn('tx' + x.id, `Refund ${money(left)}`, 'refundTx', `data-id="${x.id}"`, 'btn sm') : '<span class="pill gray">Refunded</span>') : ''}</td></tr>`; }).join('')}</table></div></div>`;
+}
+function ownerSettings() {
+  return `<div class="stack"><h2>Settings</h2><div class="card stack"><h3>Open hours</h3><p class="small muted" style="margin:0">Customers can book only inside these hours. You can still block or book any time from the calendar.</p>
+    <div class="tbl"><table>${DAYS.map((d, i) => { const h = S.hours[i];
+      return `<tr><td><b>${d}</b></td><td><label class="check"><input type="checkbox" data-act="hoursToggle" data-i="${i}" ${h ? 'checked' : ''}> Open</label></td><td>${h ? `${timeSel(`S.hours.${i}.0`, 0, 1410)} to ${timeSel(`S.hours.${i}.1`, 30, 1440)}` : '<span class="muted">Closed</span>'}</td></tr>`; }).join('')}</table></div></div>
+    <div class="card stack"><h3>Demo data</h3><p class="small muted" style="margin:0">Everything in this demo saves in your browser only. Reset to start over with the sample bookings.</p><div>${askBtn('reset', 'Reset demo data', 'reset')}</div></div></div>`;
+}
+
+/* ===================== main render ===================== */
+const app = document.getElementById('app');
+function render() {
+  const active = document.activeElement && document.activeElement.id;
+  const cust = UI.view === 'customer';
+  const ctabs = [['book', 'Book a court'], ['classes', 'Classes'], ['opengym', 'Open gym'], ['mine', 'My bookings']];
+  const otabs = [['calendar', 'Calendar'], ['reservations', 'Reservations'], ['pricing', 'Pricing'], ['classes', 'Classes'], ['members', 'Memberships'], ['payments', 'Payments'], ['settings', 'Settings']];
+  const tabs = (cust ? ctabs : otabs).map(([k, l]) => `<button data-act="tab" data-val="${k}" ${(cust ? UI.ctab : UI.otab) === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  let body;
+  if (cust) body = { book: custBook, classes: custClasses, opengym: custOpenGym, mine: custMine }[UI.ctab]();
+  else {
+    const main = { calendar: ownerCalendar, reservations: ownerReservations, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
+    const p = UI.panel;
+    const panel = p ? `<aside class="panel" aria-label="Details">${{ sel: selPanel, item: itemPanel, res: resPanel, cancel: cancelPanel, cls: classPanel }[p.type](p)}</aside>` : '';
+    body = `${UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : ''}<div class="owner${p ? ' has-panel' : ''}"><div style="min-width:0">${main}</div>${panel}</div>`;
+  }
+  app.innerHTML = `<div class="demo"><div class="wrap"><b>Preview: online booking is not live yet</b><div class="seg"><button data-act="view" data-val="customer" ${pressed(cust)}>Customer website</button><button data-act="view" data-val="owner" ${pressed(!cust)}>Owner admin</button></div>
+      <span>Nothing booked here is reserved and no card is charged. Changes save only in your browser.</span></div></div>
+    <header class="top"><div class="wrap"><div class="brand"><h1>StackLab Tomball</h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div><nav class="tabs">${tabs}</nav></div></header>
+    <main class="wrap">${body}</main>`;
+  bindCal();
+  if (active) { const el = document.getElementById(active); if (el && el.focus) el.focus({ preventScroll: true }); }
+}
+
+/* ===================== calendar pointer handling ===================== */
+let drag = null, lastPtr = '';
+document.addEventListener('pointerdown', e => { lastPtr = e.pointerType; }, true);
+window.addEventListener('pointerup', () => { if (drag) { drag = null; render(); } });
+function setSel(ar, ac, r, c) {
+  const r0 = Math.min(ar, r), r1 = Math.max(ar, r), c0 = Math.min(ac, c), c1 = Math.max(ac, c);
+  UI.oc.sel = { ar, ac };
+  const prev = UI.panel && UI.panel.type === 'sel' ? UI.panel.draft : null;
+  UI.panel = { type: 'sel', draft: { date: UI.oc.date, resources: ALL.slice(c0, c1 + 1), start: G0 + r0 * 30, end: G0 + (r1 + 1) * 30,
+    reason: prev ? prev.reason : '', repeat: prev ? prev.repeat : false, days: [dow(UI.oc.date)], until: prev ? prev.until : '', err: '' } };
+}
+function bindCal() {
+  const cal = document.getElementById('cal'); if (!cal) return;
+  cal.addEventListener('pointerdown', e => {
+    const cell = e.target.closest('.cell'); if (!cell || e.pointerType !== 'mouse' || e.button !== 0) return;
+    e.preventDefault(); drag = { r: +cell.dataset.r, c: +cell.dataset.c }; UI.oc.extending = false; setSel(drag.r, drag.c, drag.r, drag.c);
+    document.getElementById('selwrap').innerHTML = selBoxes(UI.panel.draft);
+  });
+  cal.addEventListener('pointerover', e => {
+    if (!drag) return; const cell = e.target.closest('.cell'); if (!cell) return;
+    setSel(drag.r, drag.c, +cell.dataset.r, +cell.dataset.c); document.getElementById('selwrap').innerHTML = selBoxes(UI.panel.draft);
+  });
+  cal.addEventListener('click', e => {
+    const cell = e.target.closest('.cell'); if (!cell) return;
+    if (lastPtr === 'mouse' && e.detail > 0) return;           // mouse uses drag
+    const r = +cell.dataset.r, c = +cell.dataset.c, s = UI.oc.sel;
+    if (s && UI.oc.extending && UI.panel && UI.panel.type === 'sel') { setSel(s.ar, s.ac, r, c); UI.oc.extending = false; }
+    else { setSel(r, c, r, c); UI.oc.extending = true; }
+    render();
+  });
+}
+
+/* ===================== actions ===================== */
+const find = (arr, id) => S[arr].find(x => x.id === id);
+function emptyRes(o = {}) { return { name: '', email: '', phone: '', date: UI.oc.date, resources: ['C1N', 'C1S'], start: 1080, end: 1140, note: '', discount: '', override: '', method: 'card', overBlocks: false, notify: true, reprice: '', err: '', ...o }; }
+function openItem(kind, id, date) { UI.panel = { type: 'item', kind, id, date }; UI.oc.sel = null; }
+function blockDates(d) {
+  const days = d.days.length ? d.days : [dow(d.date)], end = d.until || addDays(d.date, 365), out = [];
+  for (let x = d.date; x <= end; x = addDays(x, 1)) if (days.includes(dow(x))) out.push(x);
+  return out;
+}
+const ACT = {
+  noop() {}, view(a) { UI.view = a.dataset.val; UI.panel = null; UI.confirm = null; },
+  tab(a) { if (UI.view === 'customer') UI.ctab = a.dataset.val; else { UI.otab = a.dataset.val; UI.panel = null; } UI.confirm = null; window.scrollTo(0, 0); },
+  unflash() { UI.flash = ''; }, ask(a) { UI.confirm = a.dataset.key; }, unask() { UI.confirm = null; },
+  togArr(a) { const p = a.dataset.path, v = 'num' in a.dataset ? +a.dataset.val : a.dataset.val, arr = [...(getPath(p) || [])]; const i = arr.indexOf(v); i >= 0 ? arr.splice(i, 1) : arr.push(v); setPath(p, arr); if (p.startsWith('S.')) save(); },
+  setArr(a) { setPath(a.dataset.path, a.dataset.val.split(',')); },
+  setv(a) { setPath(a.dataset.path, a.dataset.val); },
+  // customer
+  cmode(a) { UI.cs.mode = a.dataset.val; UI.cs.start = null; }, cpick(a) { ACT.togArr({ dataset: { path: 'UI.cs.custom', val: a.dataset.val } }); UI.cs.start = null; },
+  cdate(a) { UI.cs.date = a.dataset.val; UI.cs.start = null; }, cstart(a) { UI.cs.start = +a.dataset.val; UI.cs.err = ''; },
+  cpay() {
+    const c = UI.cs; c.err = '';
+    if (!c.name.trim()) return void (c.err = 'Enter your name.');
+    if (!validEmail(c.email)) return void (c.err = 'Enter a valid email so we can send your confirmation.');
+    if ((c.card || '').replace(/\D/g, '').length < 12) return void (c.err = 'Enter a card number.');
+    const o = startOptions(c.date, c.dur).find(x => x.m === c.start);
+    if (!o || !o.set) { c.start = null; return void (c.err = 'Someone just booked that time. Pick another start time.'); }
+    const q = quote(c.date, o.set, c.start, c.start + c.dur);
+    const r = createReservation({ date: c.date, resources: o.set, start: c.start, end: c.start + c.dur, customer: { name: c.name.trim(), email: c.email.trim(), phone: c.phone.trim() }, total: q.total, lines: q.lines, method: 'card', by: 'customer' });
+    notify(r.customer.email, `Booking confirmed: ${r.code}`, `${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}. Paid ${money(r.paid)}. StackLab Tomball, 18618 FM 2920.`);
+    c.done = r.id; c.start = null; save(); window.scrollTo(0, 0);
+  },
+  bookAnother() { UI.cs.done = null; },
+  clopen(a) { UI.cl.open = a.dataset.id || null; UI.cl.err = ''; }, cldone() { UI.cl.done = null; },
+  clpay(a) {
+    const c = find('classes', a.dataset.id), f = UI.cl; f.err = '';
+    if (!f.name.trim()) return void (f.err = "Enter the player's name.");
+    if (!validEmail(f.email)) return void (f.err = 'Enter a valid email.');
+    if (enrolled(c) >= c.capacity) return void (f.err = 'This class just filled up.');
+    const g = { id: uid('g'), classId: c.id, name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), status: 'active', paid: c.price, at: nowISO() };
+    S.regs.push(g); charge('class', `${c.name}: ${g.name}`, c.price, 'card', { kind: 'reg', id: g.id });
+    notify(g.email, `Registered: ${c.name}`, `${g.name} is registered. ${classSchedule(c)}. Paid ${money(c.price)}.`);
+    f.done = `${g.name} is registered for ${c.name}. A confirmation was sent to ${g.email}.`; f.open = null; f.name = ''; save();
+  },
+  ogopen(a) { UI.og.which = a.dataset.val || null; UI.og.err = ''; if (!UI.og.date) UI.og.date = TODAY(); }, ogdone() { UI.og.done = null; },
+  ogpay(a) {
+    const g = UI.og, w = a.dataset.val; g.err = '';
+    if (!g.name.trim()) return void (g.err = 'Enter your name.');
+    if (!validEmail(g.email)) return void (g.err = 'Enter a valid email.');
+    if (w === 'mem') {
+      const t = TODAY(); const m = { id: uid('m'), name: g.name.trim(), email: g.email.trim(), start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '' };
+      S.members.push(m); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id });
+      notify(m.email, 'Welcome to StackLab open gym', `Your membership is active. ${money(m.price)} renews on ${fmtD(m.nextBill)} each month.`);
+      g.done = `Membership active. Next charge ${fmtD(m.nextBill)}.`;
+    } else {
+      if (!g.date || g.date < TODAY()) return void (g.err = 'Pick today or a later day.');
+      const d = { id: uid('d'), name: g.name.trim(), email: g.email.trim(), date: g.date, price: S.dropIn }; S.dropins.push(d);
+      charge('dropin', `Open-gym drop-in: ${d.name} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id });
+      notify(d.email, 'Open-gym pass', `Drop-in for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. Paid ${money(d.price)}.`);
+      g.done = `Drop-in pass for ${fmtD(d.date)} confirmed.`;
+    }
+    g.which = null; save();
+  },
+  // owner calendar
+  odate(a) { UI.oc.date = a.dataset.val; UI.panel = null; UI.oc.sel = null; },
+  openItem(a) { openItem(a.dataset.kind, a.dataset.id, UI.oc.date); UI.confirm = null; },
+  closePanel() { UI.panel = null; UI.oc.sel = null; UI.confirm = null; },
+  allDay() { const d = UI.panel.draft, h = hoursOf(d.date); d.start = h ? h[0] : G0; d.end = h ? h[1] : G1; },
+  blockDay() { const h = hoursOf(UI.oc.date); UI.panel = { type: 'sel', draft: { date: UI.oc.date, resources: [...ALL], start: h ? h[0] : G0, end: h ? h[1] : G1, reason: '', repeat: false, days: [dow(UI.oc.date)], until: '', err: '' } }; },
+  doBlock() {
+    const d = UI.panel.draft; d.err = '';
+    if (!d.resources.length) return void (d.err = 'Pick at least one half court.');
+    if (d.end <= d.start) return void (d.err = 'End time must be after the start time.');
+    if (!d.repeat) {
+      const c = conflict(d.date, d.resources, d.start, d.end, { ignoreBlocks: true });
+      if (c) return void (d.err = `That time has a ${describe(c)}. Cancel or move it first.`);
+      S.blocks.push({ id: uid('b'), date: d.date, resources: sortRes(d.resources), start: d.start, end: d.end, reason: d.reason.trim() });
+      UI.flash = `Blocked ${resLabel(d.resources)}, ${fmtD(d.date)} ${fmtT(d.start)}–${fmtT(d.end)}.`;
+    } else {
+      const days = d.days.length ? d.days : [dow(d.date)];
+      const skipped = blockDates({ ...d, days }).filter(x => conflict(x, d.resources, d.start, d.end, { ignoreBlocks: true }));
+      S.blocks.push({ id: uid('b'), resources: sortRes(d.resources), start: d.start, end: d.end, reason: d.reason.trim(), repeat: { days, from: d.date, until: d.until || '' }, except: skipped });
+      UI.flash = `Blocked every ${days.map(x => DAYS[x]).join(', ')} ${fmtT(d.start)}–${fmtT(d.end)}${skipped.length ? `. Skipped ${skipped.length} date(s) that already have bookings: ${skipped.slice(0, 4).map(x => fmtD(x)).join(', ')}${skipped.length > 4 ? '…' : ''}` : ''}.`;
+    }
+    UI.panel = null; UI.oc.sel = null; save();
+  },
+  unblockOne(a) { const b = find('blocks', a.dataset.id); b.except = [...(b.except || []), UI.panel.date]; UI.flash = `Unblocked ${fmtD(UI.panel.date)}. The rest of the series stays.`; UI.panel = null; save(); },
+  unblockAll(a) { S.blocks = S.blocks.filter(b => b.id !== a.dataset.id); UI.flash = 'Unblocked.'; UI.panel = null; UI.confirm = null; save(); },
+  selToRes() { const d = UI.panel.draft; UI.panel = { type: 'res', id: null, draft: emptyRes({ date: d.date, resources: [...d.resources], start: d.start, end: d.end }) }; },
+  newRes() { UI.otab = 'calendar'; UI.panel = { type: 'res', id: null, draft: emptyRes() }; },
+  editRes(a) { const r = find('reservations', a.dataset.id); UI.panel = { type: 'res', id: r.id, draft: emptyRes({ ...r.customer, date: r.date, resources: [...r.resources], start: r.start, end: r.end, note: r.note }) }; },
+  showRes(a) { const r = find('reservations', a.dataset.id); UI.otab = 'calendar'; UI.oc.date = r.date; openItem('res', r.id, r.date); window.scrollTo(0, 0); },
+  saveRes() {
+    const p = UI.panel, d = p.draft; d.err = '';
+    if (!d.name.trim()) return void (d.err = 'Enter the customer name.');
+    if (d.email && !validEmail(d.email)) return void (d.err = 'That email does not look right.');
+    if (!d.resources.length) return void (d.err = 'Pick at least one half court.');
+    if (d.end <= d.start) return void (d.err = 'End time must be after the start time.');
+    const c = conflict(d.date, d.resources, d.start, d.end, { ignore: p.id ? { kind: 'res', id: p.id } : null, ignoreBlocks: d.overBlocks });
+    if (c) return void (d.err = c.kind === 'block' ? `That time is blocked (${c.label}). Tick "Book over blocked time" to book it anyway.` : `It overlaps the ${describe(c)}.`);
+    const q = quote(d.date, d.resources, d.start, d.end), cust = { name: d.name.trim(), email: d.email.trim(), phone: d.phone.trim() };
+    if (!p.id) {
+      const ov = d.override === '' || d.override == null ? null : Number(d.override);
+      const total = ov != null ? ov : r2(q.total * (1 - (Number(d.discount) || 0) / 100));
+      const r = createReservation({ date: d.date, resources: d.resources, start: d.start, end: d.end, customer: cust, total, listTotal: q.total, lines: q.lines, method: d.method, note: d.note, by: 'owner' });
+      if (d.notify && cust.email) notify(cust.email, `Booking confirmed: ${r.code}`, `${resLabel(r.resources)}, ${fmtD(r.date)}, ${fmtT(r.start)}–${fmtT(r.end)}. ${r.paid >= r.total ? 'Paid ' + money(r.paid) : 'Amount due ' + money(r.total)}.`);
+      UI.flash = `Created ${r.code} for ${cust.name}.`; UI.oc.date = r.date; openItem('res', r.id, r.date);
+    } else {
+      const r = find('reservations', p.id); const before = `${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)}, ${resLabel(r.resources)}`;
+      Object.assign(r, { date: d.date, resources: sortRes(d.resources), start: d.start, end: d.end, customer: cust, note: d.note });
+      let money_note = '';
+      if (d.reprice) { const diff = r2(q.total - r.total); r.total = q.total; r.listTotal = q.total; r.lines = q.lines;
+        if (diff > 0) { charge('adjustment', `${r.code} re-priced`, diff, 'card', { kind: 'res', id: r.id }); r.paid = r2(r.paid + diff); money_note = ` Charged ${money(diff)}.`; }
+        if (diff < 0) { const amt = refundRef('res', r.id, -diff, 're-priced'); money_note = amt ? ` Refunded ${money(amt)}.` : ''; } }
+      const after = `${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)}, ${resLabel(r.resources)}`;
+      if (d.notify && cust.email) notify(cust.email, `Your booking ${r.code} changed`, `Was: ${before}. Now: ${after}.${money_note}`);
+      UI.flash = `Saved ${r.code}.${money_note}`; UI.oc.date = r.date; openItem('res', r.id, r.date);
+    }
+    save();
+  },
+  markPaid(a) { const r = find('reservations', a.dataset.id), bal = r2(r.total - r.paid); charge('rental', `${r.code} balance`, bal, 'cash', { kind: 'res', id: r.id }); r.paid = r.total; UI.flash = `Recorded ${money(bal)} for ${r.code}.`; save(); },
+  cancelRes(a) { UI.panel = { type: 'cancel', id: a.dataset.id, draft: { refund: 'full', after: 'release', reason: '', notify: true } }; },
+  doCancel() {
+    const p = UI.panel, d = p.draft, r = find('reservations', p.id);
+    const refund = d.refund === 'full' && r.paid > 0 ? refundRef('res', r.id, r.paid, 'cancelled') : 0;
+    r.status = 'cancelled'; r.cancel = { at: nowISO(), refund, keep: d.after === 'keep', reason: d.reason.trim() };
+    if (d.after === 'keep') S.blocks.push({ id: uid('b'), date: r.date, resources: r.resources, start: r.start, end: r.end, reason: `Held (cancelled ${r.code})` });
+    if (d.notify && r.customer.email) notify(r.customer.email, `Booking ${r.code} cancelled`, `${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)} is cancelled.${d.reason ? ' ' + d.reason.trim() + '.' : ''} ${refund ? 'Refund: ' + money(refund) + ' to your card.' : 'No refund.'}`);
+    UI.flash = `Cancelled ${r.code}${refund ? `, refunded ${money(refund)}` : ''}. Time ${d.after === 'keep' ? 'kept blocked' : 'is open again'}.`; UI.panel = null; save();
+  },
+  goClass(a) { UI.otab = 'classes'; UI.oclass = a.dataset.id; UI.panel = null; },
+  cancelSession(a) {
+    const c = find('classes', a.dataset.id), date = UI.panel.date; c.skip = [...(c.skip || []), date];
+    S.regs.filter(g => g.classId === c.id && g.status === 'active').forEach(g => notify(g.email, `${c.name}: ${fmtD(date)} cancelled`, `The ${fmtT(c.start)} session on ${fmtD(date, { weekday: 'long', month: 'long', day: 'numeric' })} is cancelled.`));
+    UI.flash = `Cancelled the ${fmtD(date)} session of ${c.name}. The court is free that day.`; UI.panel = null; UI.confirm = null; save();
+  },
+  // reservations list
+  rfilter(a) { UI.rf.filter = a.dataset.val; },
+  // pricing
+  ruleAdd(a) { const sp = a.dataset.val === 'special', t = TODAY(); S.rules.push({ id: uid('r'), name: sp ? 'Special date' : 'New rule', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: sp ? t : '', to: sp ? t : '', half: 40, full: 70, gym: 130 }); save(); },
+  ruleDel(a) { S.rules.splice(+a.dataset.i, 1); UI.confirm = null; save(); },
+  ruleMove(a) { const i = +a.dataset.i, j = i + +a.dataset.val; [S.rules[i], S.rules[j]] = [S.rules[j], S.rules[i]]; save(); },
+  // classes
+  newClass() { const t = TODAY(); UI.panel = { type: 'cls', id: null, draft: { name: '', desc: '', resources: ['C1N', 'C1S'], days: [1], start: 1080, end: 1140, startDate: t, weeks: 6, capacity: 12, price: 100, err: '', conflicts: 0, skipConf: false } }; },
+  editClass(a) { const c = find('classes', a.dataset.id); UI.panel = { type: 'cls', id: c.id, draft: { ...JSON.parse(JSON.stringify(c)), err: '', conflicts: 0, skipConf: false } }; },
+  saveClass() {
+    const p = UI.panel, d = p.draft; d.err = '';
+    if (!d.name.trim()) return void (d.err = 'Name the class.');
+    if (!d.resources.length || !d.days.length) return void (d.err = 'Pick the court space and at least one day.');
+    if (d.end <= d.start) return void (d.err = 'End time must be after the start time.');
+    const tmp = { ...d, name: d.name.trim(), resources: sortRes(d.resources), weeks: Math.max(1, d.weeks | 0), capacity: Math.max(1, d.capacity | 0), skip: p.id ? (find('classes', p.id).skip || []) : [] };
+    const bad = sessionsOf(tmp).filter(x => conflict(x, tmp.resources, tmp.start, tmp.end, { ignore: p.id ? { kind: 'class', id: p.id } : null }));
+    if (bad.length && !d.skipConf) { d.conflicts = bad.length; return void (d.err = `${bad.length} session date(s) clash with existing bookings or blocks: ${bad.slice(0, 4).map(x => fmtD(x)).join(', ')}${bad.length > 4 ? '…' : ''}.`); }
+    tmp.skip = [...tmp.skip, ...bad];
+    const clean = { id: p.id || uid('c'), name: tmp.name, desc: d.desc, resources: tmp.resources, days: tmp.days, start: tmp.start, end: tmp.end, startDate: tmp.startDate, weeks: tmp.weeks, capacity: tmp.capacity, price: Number(tmp.price) || 0, status: 'active', skip: tmp.skip };
+    if (p.id) Object.assign(find('classes', p.id), clean); else S.classes.push(clean);
+    UI.flash = `${p.id ? 'Saved' : 'Created'} ${clean.name}: ${sessionsOf(clean).length} sessions now hold ${resLabel(clean.resources)} on the calendar.`; UI.panel = null; save();
+  },
+  roster(a) { UI.oclass = UI.oclass === a.dataset.id ? null : a.dataset.id; },
+  removeReg(a) { const g = find('regs', a.dataset.id), c = find('classes', g.classId); g.status = 'removed';
+    const amt = a.dataset.val === 'refund' ? refundRef('reg', g.id, g.paid || 0, 'removed from class') : 0;
+    notify(g.email, `${c.name}: registration cancelled`, `${g.name} has been removed from ${c.name}. ${amt ? 'Refund ' + money(amt) + '.' : 'No refund.'}`); UI.confirm = null; save(); },
+  cancelClass(a) { const c = find('classes', a.dataset.id), refund = a.dataset.val === 'refund'; c.status = 'cancelled'; let tot = 0;
+    S.regs.filter(g => g.classId === c.id && g.status === 'active').forEach(g => { const amt = refund ? refundRef('reg', g.id, g.paid || 0, 'class cancelled') : 0; tot += amt; notify(g.email, `${c.name} cancelled`, `${c.name} has been cancelled. ${amt ? 'Refund ' + money(amt) + '.' : ''}`); });
+    UI.flash = `Cancelled ${c.name}${tot ? ` and refunded ${money(tot)}` : ''}. Its court time is free again.`; UI.confirm = null; save(); },
+  // memberships
+  runBilling() { let n = 0, tot = 0; for (const m of S.members) if (m.status === 'active' && m.nextBill <= TODAY()) { charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); n++; tot += m.price; }
+    UI.flash = `Billed ${n} member${n === 1 ? '' : 's'}, ${money(tot)}.`; save(); },
+  billOne(a) { const m = find('members', a.dataset.id); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); UI.flash = `Charged ${m.name} ${money(m.price)}.`; save(); },
+  memCancel(a) { const m = find('members', a.dataset.id); m.status = 'cancelled'; m.cancelledAt = TODAY(); notify(m.email, 'Membership cancelled', `Your open-gym membership is cancelled. Access continues until ${fmtD(m.nextBill)}.`); UI.confirm = null; save(); },
+  memReact(a) { const m = find('members', a.dataset.id), t = TODAY(); m.status = 'active';
+    if (m.nextBill <= t) { charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(t, 1); } UI.flash = `${m.name} is active again.`; save(); },
+  memAdd() { const f = UI.nm; f.err = ''; if (!f.name.trim()) return void (f.err = 'Enter a name.'); if (!validEmail(f.email)) return void (f.err = 'Enter a valid email.');
+    const t = TODAY(), m = { id: uid('m'), name: f.name.trim(), email: f.email.trim(), start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '' };
+    S.members.push(m); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); UI.nm = { name: '', email: '', err: '' }; UI.flash = `Added ${m.name}.`; save(); },
+  // payments + settings
+  refundTx(a) { const x = S.txns.find(t => t.id === a.dataset.id); const amt = refundTxn(x, x.amount, 'owner refund'); UI.flash = `Refunded ${money(amt)}.`; UI.confirm = null; save(); },
+  hoursToggle(a) { const i = +a.dataset.i; S.hours[i] = S.hours[i] ? null : [360, 1380]; save(); },
+  reset() { try { localStorage.removeItem(KEY); } catch (e) {} seed(); UI.panel = null; UI.confirm = null; UI.flash = 'Demo data reset.'; },
+};
+UI.nm = { name: '', email: '', err: '' };
+
+app.addEventListener('click', e => {
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  const act = a.dataset.act, f = ACT[act]; if (!f) return;
+  if (act !== 'ask' && act !== 'unask' && !a.closest('.confirm-line')) UI.confirm = null;
+  if (UI.view === 'owner' && !['unflash', 'ask', 'unask', 'togArr', 'setv', 'setArr', 'allDay'].includes(act)) UI.flash = '';
+  f(a, e); render();
+});
+function readVal(el) {
+  if (el.type === 'checkbox') return el.checked;
+  if ('num' in el.dataset) return el.value === '' ? '' : Number(el.value);
+  return el.value;
+}
+app.addEventListener('input', e => { const el = e.target; if (!el.dataset || !el.dataset.bind || el.type === 'checkbox' || el.tagName === 'SELECT') return; setPath(el.dataset.bind, readVal(el)); if (el.dataset.bind.startsWith('S.')) save(); });
+app.addEventListener('change', e => {
+  const el = e.target; if (!el.dataset || !el.dataset.bind) return;
+  setPath(el.dataset.bind, readVal(el)); if (el.dataset.bind.startsWith('S.')) save();
+  if (el.dataset.bind === 'UI.cs.date' || el.dataset.bind === 'UI.cs.dur') UI.cs.start = null;
+  if (el.dataset.bind === 'UI.oc.date') { UI.panel = null; UI.oc.sel = null; }
+  if ('rr' in el.dataset || el.type === 'checkbox' || el.tagName === 'SELECT') render();
+});
+
+load();
+UI.cs.date = TODAY(); UI.oc.date = TODAY(); UI.og.date = TODAY();
+try { if (location.hash === '#owner') UI.view = 'owner'; } catch (e) {}
+render();
+</script>
+</body></html>
