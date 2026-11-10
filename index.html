@@ -61,6 +61,16 @@ main.wrap { padding-block: 20px 120px }
 .seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent) }
 input[type=text], input[type=email], input[type=tel], input[type=number], input[type=date], select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 8px 10px; min-width: 0; max-width: 100% }
 input[type=number] { width: 90px }
+input[type=password] { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 8px 10px; min-width: 0; max-width: 100% }
+textarea { width: 100%; min-height: 70px }
+.who { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; padding-bottom: 10px }
+.narrow { max-width: 460px; margin: 0 auto; width: 100% }
+.notice { background: var(--warn-soft); color: var(--warn); padding: 10px 12px; border-radius: 8px; font-weight: 600; font-size: 14px }
+.paybox { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px }
+.paybox input:disabled { opacity: .55 }
+.foot { border-top: 1px solid var(--line); margin-top: 32px; padding-block: 16px; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; cursor: pointer }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; margin-left: 4px }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0 }
 .field > span { font-size: 13px; font-weight: 600; color: var(--muted) }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px }
@@ -195,14 +205,57 @@ const nextDow = (from, d) => { let x = from; while (dow(x) !== d) x = addDays(x,
 const atISO = (date, m = 720) => `${date}T${pad(Math.floor(m / 60))}:${pad(m % 60)}:00`;
 const nowISO = () => { const d = new Date(); return atISO(ds(d), d.getHours() * 60 + d.getMinutes()); };
 
+/* ===================== passwords ===================== */
+// Plain SHA-256 so it also runs on http:// pages, where crypto.subtle is unavailable.
+const ror = (x, n) => (x >>> n) | (x << (32 - n));
+function sha256hex(msg) {
+  const bytes = [...new TextEncoder().encode(msg)], K = [], H = [];
+  const frac = x => ((x - Math.floor(x)) * 0x100000000) | 0;
+  for (let n = 2, c = 0; c < 64; n++) { let p = true; for (let i = 2; i * i <= n; i++) if (n % i === 0) { p = false; break; }
+    if (p) { if (c < 8) H[c] = frac(Math.pow(n, 1 / 2)); K[c] = frac(Math.pow(n, 1 / 3)); c++; } }
+  const l = bytes.length * 8; bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (l >>> (i * 8)) & 255);
+  const w = new Array(64);
+  for (let j = 0; j < bytes.length; j += 64) {
+    for (let i = 0; i < 16; i++) w[i] = (bytes[j + 4 * i] << 24) | (bytes[j + 4 * i + 1] << 16) | (bytes[j + 4 * i + 2] << 8) | bytes[j + 4 * i + 3];
+    for (let i = 16; i < 64; i++) { const a = w[i - 15], b = w[i - 2];
+      w[i] = (w[i - 16] + (ror(a, 7) ^ ror(a, 18) ^ (a >>> 3)) + w[i - 7] + (ror(b, 17) ^ ror(b, 19) ^ (b >>> 10))) | 0; }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (ror(e, 6) ^ ror(e, 11) ^ ror(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((ror(a, 2) ^ ror(a, 13) ^ ror(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+    H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+  }
+  return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+}
+function hashPw(pw, salt) { let h = sha256hex(salt + ':' + pw); for (let i = 1; i < 1000; i++) h = sha256hex(h); return h; }
+const newSalt = () => Array.from({ length: 8 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+// Owner login. Only the salted hash is stored here, never the password.
+const OWNER = { username: 'stacklab', salt: '6a34daba6bdc9b76', hash: '8f8f0c78a237bd8fae9269463ef899a2252887af37b1db0e37e39fceff9a2108' };
+
 /* ===================== state ===================== */
-const KEY = 'stacklab-demo-v1';
+const KEY = 'stacklab-demo-v1', SKEY = 'stacklab-session-v1';
 let S;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function migrate() {
+  if (S.v === 2) return;
+  S.users = S.users || []; S.apps = S.apps || []; S.v = 2; seedAccounts();
+}
 function load() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const v = JSON.parse(raw); if (v && v.v === 1) { S = v; return; } } } catch (e) {}
+  try { const raw = localStorage.getItem(KEY); if (raw) { const v = JSON.parse(raw); if (v && (v.v === 1 || v.v === 2)) { S = v; migrate(); save(); return; } } } catch (e) {}
   seed();
 }
+/* sessions: { kind: 'owner' } or { kind: 'customer', userId } */
+let SESSION = null;
+function loadSession() { try { SESSION = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { SESSION = null; } }
+function saveSession() { try { SESSION ? localStorage.setItem(SKEY, JSON.stringify(SESSION)) : localStorage.removeItem(SKEY); } catch (e) {} }
+const isOwner = () => !!SESSION && SESSION.kind === 'owner';
+const me = () => SESSION && SESSION.kind === 'customer' ? S.users.find(u => u.id === SESSION.userId) || null : null;
+const userByLogin = s => { s = (s || '').trim().toLowerCase(); return S.users.find(u => u.username.toLowerCase() === s || u.email.toLowerCase() === s); };
+const appOf = u => S.apps.filter(a => a.userId === u.id).sort((a, b) => b.at.localeCompare(a.at))[0] || null;
 
 /* ===================== pricing ===================== */
 function ruleFor(date, m) {
@@ -301,7 +354,7 @@ function createReservation(o) {
 function seed() {
   const t = TODAY(); const y = parse(t).getFullYear();
   let tg = thanksgiving(y); if (tg < t) tg = thanksgiving(y + 1);
-  S = { v: 1, seq: 1040,
+  S = { v: 2, seq: 1040, users: [], apps: [],
     hours: { 0: [480, 1260], 1: [360, 1380], 2: [360, 1380], 3: [360, 1380], 4: [360, 1380], 5: [360, 1380], 6: [420, 1380] },
     dropIn: 10, membership: 59, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
     rules: [
@@ -354,12 +407,32 @@ function seed() {
     const d = { id: uid('d'), name: n, email: e, date: addDays(t, off), price: S.dropIn }; S.dropins.push(d);
     const x = charge('dropin', `Open-gym drop-in: ${n} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id }); x.at = atISO(d.date, 540);
   }
+  seedAccounts();
   save();
+}
+// Sample customer accounts so the owner's approval queue has something in it.
+// Their passwords are random, so nobody can log in as them.
+function seedAccounts() {
+  const t = TODAY();
+  const acct = (name, username, email, phone, off, access) => {
+    const salt = newSalt(); const u = { id: uid('u'), name, username, email, phone, salt, hash: hashPw(Math.random().toString(36), salt), createdAt: atISO(addDays(t, off), 610), access };
+    S.users.push(u); return u;
+  };
+  const app = (u, off, o) => S.apps.push({ id: uid('a'), userId: u.id, at: atISO(addDays(t, off), 640), status: u.access, decidedAt: u.access === 'pending' ? '' : atISO(addDays(t, off + 1), 900), ownerNote: '', ...o });
+  const m = acct('Marcus Reed', 'mreed', 'marcus.reed@example.com', '281-555-0142', -60, 'approved');
+  app(m, -60, { use: 'Pickup / friends', org: '', size: '8–10', when: 'Weeknights after 6', notes: '' });
+  const n = acct('Northwest Elite AAU', 'nwelite', 'nwelite@example.com', '713-555-0190', -45, 'approved');
+  app(n, -45, { use: 'Team practice', org: 'Northwest Elite AAU (14U boys)', size: '12 players, 2 coaches', when: 'Tue/Thu evenings, full court', notes: 'Insured through AAU.' });
+  const k = acct('Keisha Grant', 'kgrant', 'kgrant@example.com', '832-555-0114', -2, 'pending');
+  app(k, -2, { use: 'Private training', org: 'Grant Skills Training', size: '1–3 players', when: 'Weekday mornings, half court', notes: 'Certified trainer, can send insurance.' });
+  const d = acct('Danny Flores', 'dflores', 'dflores@example.com', '281-555-0188', -1, 'pending');
+  app(d, -1, { use: 'Birthday party / event', org: '', size: 'About 20 kids', when: 'One Saturday afternoon, entire gym', notes: 'Son turning 11.' });
 }
 
 /* ===================== UI state ===================== */
 const UI = {
-  view: 'customer', ctab: 'book', otab: 'calendar',
+  view: 'customer', ctab: 'classes', otab: 'calendar', after: '', co: null, cq: '', dnote: {},
+  auth: null, ap: null, olog: { user: '', pw: '', err: '' },
   cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
   cl: { open: null, name: '', email: '', phone: '', err: '', done: null },
   og: { which: null, name: '', email: '', date: '', err: '', done: null },
@@ -367,6 +440,9 @@ const UI = {
   oc: { date: '', sel: null, extending: false },
   panel: null, rf: { filter: 'upcoming', q: '' }, oclass: null, confirm: null, flash: '',
 };
+const blankAuth = () => ({ id: '', pw: '', pw2: '', name: '', email: '', phone: '', user: '', err: '' });
+const blankApp = () => ({ use: 'Team practice', org: '', size: '', when: '', notes: '', rules: false, err: '' });
+UI.auth = blankAuth(); UI.ap = blankApp();
 const ROOT = { get S() { return S; }, UI };
 function setPath(p, v) { const k = p.split('.'); let o = ROOT; for (let i = 0; i < k.length - 1; i++) o = o[k[i]]; o[k[k.length - 1]] = v; }
 function getPath(p) { return p.split('.').reduce((o, k) => (o == null ? o : o[k]), ROOT); }
@@ -406,14 +482,77 @@ function startOptions(date, dur) {
   }
   return out;
 }
+/* ---------- accounts ---------- */
+const needLogin = (what, after) => `<section class="card stack narrow"><h2>Log in to ${what}</h2>
+  <p style="margin:0">You need a free StackLab account. It takes a minute.</p>
+  <div class="row"><button class="btn primary" data-act="goAuth" data-val="signup" data-after="${after}">Create an account</button><button class="btn" data-act="goAuth" data-val="login" data-after="${after}">Log in</button></div></section>`;
+function custLogin() {
+  const f = UI.auth;
+  return `<section class="card stack narrow"><h2>Log in</h2>
+    <div class="stack" style="gap:10px">${txt('UI.auth.id', 'Username or email')}<label class="field"><span>Password</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
+    ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
+    <div><button class="btn primary" data-act="doLogin">Log in</button></div>
+    <p class="small muted" style="margin:0">New here? <button class="linkbtn" data-act="goAuth" data-val="signup" data-after="${esc(UI.after || '')}">Create an account</button></p></section>`;
+}
+function custSignup() {
+  const f = UI.auth;
+  return `<section class="card stack narrow"><h2>Create your account</h2>
+    <p class="small muted" style="margin:0">With an account you can sign up for classes and open gym right away. To rent court time, you also apply once and the owner approves you.</p>
+    <div class="stack" style="gap:10px">${txt('UI.auth.name', 'Full name')}${txt('UI.auth.email', 'Email', 'email')}${txt('UI.auth.phone', 'Phone', 'tel')}${txt('UI.auth.user', 'Choose a username')}
+      <label class="field"><span>Password (at least 8 characters)</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="new-password"></label>
+      <label class="field"><span>Confirm password</span><input type="password" ${bind('UI.auth.pw2')} value="${esc(f.pw2)}" autocomplete="new-password"></label></div>
+    ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
+    <div><button class="btn primary" data-act="doSignup">Create account</button></div>
+    <p class="small muted" style="margin:0">Already have one? <button class="linkbtn" data-act="goAuth" data-val="login" data-after="${esc(UI.after || '')}">Log in</button></p></section>`;
+}
+function custApply(u) {
+  const a = appOf(u), f = UI.ap;
+  if (a && a.status === 'pending') return `<section class="card stack narrow"><h2>Application received</h2>
+    <p style="margin:0">Thanks, ${esc(u.name.split(' ')[0])}. The owner reviews court-rental applications and will email ${esc(u.email)} when you're approved. Until then you can sign up for classes and open gym.</p>
+    <dl class="kv"><dt>Submitted</dt><dd>${fmtD(a.at.slice(0, 10))}</dd><dt>Use</dt><dd>${esc(a.use)}</dd><dt>Status</dt><dd><span class="pill warn">Waiting for approval</span></dd></dl>
+    <div class="row"><button class="btn" data-act="tab" data-val="classes">See classes</button><button class="btn" data-act="tab" data-val="opengym">Open gym</button></div></section>`;
+  const opt = v => `<option${f.use === v ? ' selected' : ''}>${v}</option>`;
+  return `<section class="card stack narrow"><h2>Apply to rent court time</h2>
+    ${a && a.status === 'declined' ? `<div class="notice">Your last application was not approved${a.ownerNote ? ': “' + esc(a.ownerNote) + '”' : ''}. You can apply again below.</div>` : ''}
+    <p style="margin:0">Court rentals are open to approved customers. Tell the owner a little about how you'll use the gym. You only apply once.</p>
+    <div class="stack" style="gap:10px">
+      <label class="field"><span>What will you use the court for?</span><select ${bind('UI.ap.use')}>${['Team practice', 'Private training', 'Pickup / friends', 'League game', 'Birthday party / event', 'Other'].map(opt).join('')}</select></label>
+      ${txt('UI.ap.org', 'Team, club or business name (if any)')}
+      ${txt('UI.ap.size', 'How many people, usually?')}
+      ${txt('UI.ap.when', 'When would you usually book?', 'text', 'e.g. Tuesday evenings, full court')}
+      <label class="field"><span>Anything else the owner should know?</span><textarea ${bind('UI.ap.notes')}>${esc(f.notes)}</textarea></label>
+      <label class="check"><input type="checkbox" ${bind('UI.ap.rules')} ${f.rules ? 'checked' : ''}> I agree to follow the gym rules and pay for any damage.</label></div>
+    ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
+    <div><button class="btn primary" data-act="doApply">Submit application</button></div></section>`;
+}
+function custCheckout() {
+  const o = UI.co, u = me();
+  if (!o) return `<section class="card stack narrow"><h2>Checkout</h2><p class="muted" style="margin:0">Your cart is empty.</p><div><button class="btn" data-act="tab" data-val="classes">Browse classes</button></div></section>`;
+  if (o.done) return `<section class="card done stack narrow"><h2>You're all set</h2><p style="margin:0">${esc(o.done)}</p>
+    <p class="small" style="margin:0">A confirmation was sent to ${esc(u ? u.email : '')}. Pay ${money(o.total)} at the front desk when you arrive.</p>
+    <div class="row"><button class="btn primary" data-act="tab" data-val="account">My account</button><button class="btn" data-act="tab" data-val="${o.back}">${o.kind === 'res' ? 'Book another time' : 'Back'}</button></div></section>`;
+  const rows = o.rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('');
+  return `<section class="stack narrow"><div class="row"><button class="btn sm" data-act="tab" data-val="${o.back}">← Back</button><h2 style="flex:1">Checkout</h2></div>
+    <div class="card stack"><h3>${esc(o.title)}</h3><dl class="kv">${rows}</dl>${linesHTML(o.lines, o.total)}</div>
+    ${o.kind === 'class' ? `<div class="card stack"><h3>Player</h3><div class="fields">${txt('UI.co.player', 'Player name')}</div><p class="small muted" style="margin:0">Registering a child? Enter their name here; we'll contact you at your account email.</p></div>` : ''}
+    <div class="card stack"><h3>Your details</h3><dl class="kv"><dt>Name</dt><dd>${esc(u.name)}</dd><dt>Email</dt><dd>${esc(u.email)}</dd></dl>${txt('UI.co.phone', 'Phone', 'tel')}</div>
+    <div class="card stack"><h3>Payment</h3>
+      <div class="notice">Online card payment is coming soon. Confirm now to hold your spot, then pay at the front desk.</div>
+      <div class="paybox" aria-label="Card payment, coming soon"><div class="fields">
+        <label class="field"><span>Name on card</span><input type="text" disabled placeholder="Coming soon"></label>
+        <label class="field"><span>Card number</span><input type="text" disabled placeholder="•••• •••• •••• ••••"></label>
+        <label class="field"><span>Expiry</span><input type="text" disabled placeholder="MM / YY"></label>
+        <label class="field"><span>CVC</span><input type="text" disabled placeholder="•••"></label>
+        <label class="field"><span>ZIP</span><input type="text" disabled placeholder="77375"></label></div></div>
+      ${o.err ? `<div class="err">${esc(o.err)}</div>` : ''}
+      <div><button class="btn primary" data-act="placeOrder">Confirm — pay ${money(o.total)}${o.kind === 'mem' ? '/month' : ''} at the desk</button></div>
+      ${o.kind === 'mem' ? `<p class="small muted" style="margin:0">Membership renews monthly. Once card payments are live it will be charged automatically.</p>` : ''}</div></section>`;
+}
 function custBook() {
-  const c = UI.cs;
+  const c = UI.cs, u = me();
+  if (!u) return needLogin('rent court time', 'book');
+  if (u.access !== 'approved') return custApply(u);
   if (!c.date || c.date < TODAY()) c.date = TODAY();
-  if (c.done) { const r = S.reservations.find(x => x.id === c.done);
-    return `<section class="card done stack"><h2>You're booked</h2><p>Confirmation <b>${r.code}</b> was sent to ${esc(r.customer.email)}.</p>
-      <dl class="kv"><dt>Space</dt><dd>${resLabel(r.resources)}</dd><dt>Date</dt><dd>${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}</dd>
-      <dt>Time</dt><dd>${fmtT(r.start)} – ${fmtT(r.end)} (${fmtDur(r.end - r.start)})</dd><dt>Paid</dt><dd>${money(r.paid)}</dd></dl>
-      <div><button class="btn primary" data-act="bookAnother">Book another time</button></div></section>`; }
   const h = hoursOf(c.date);
   const maxDur = h ? h[1] - h[0] : 0;
   if (c.dur > maxDur && maxDur) c.dur = maxDur;
@@ -438,13 +577,10 @@ function custBook() {
   html += `</div>`;
   if (c.start != null) {
     const set = opts.find(o => o.m === c.start).set; const q = quote(c.date, set, c.start, c.start + c.dur);
-    html += `<div class="card stack" style="background:var(--bg)"><h3>Checkout</h3>
+    html += `<div class="card stack" style="background:var(--bg)"><h3>Your selection</h3>
       <dl class="kv"><dt>Space</dt><dd>${resLabel(set)}</dd><dt>Date</dt><dd>${fmtD(c.date, { weekday: 'long', month: 'long', day: 'numeric' })}</dd><dt>Time</dt><dd>${fmtT(c.start)} – ${fmtT(c.start + c.dur)}</dd></dl>
       ${linesHTML(q.lines, q.total)}
-      <div class="fields">${txt('UI.cs.name', 'Name')}${txt('UI.cs.email', 'Email', 'email')}${txt('UI.cs.phone', 'Phone', 'tel')}${txt('UI.cs.card', 'Card number')}</div>
-      ${c.err ? `<div class="err">${esc(c.err)}</div>` : ''}
-      <div><button class="btn primary" data-act="cpay">Pay ${money(q.total)} and book</button></div>
-      <p class="small muted">Demo checkout: no card is charged. The live site would take payment through Stripe.</p></div>`;
+      <div><button class="btn primary" data-act="coBook">Continue to checkout</button></div></div>`;
   }
   return html + `</section>`;
 }
@@ -456,42 +592,44 @@ const enrolled = c => S.regs.filter(g => g.classId === c.id && g.status === 'act
 function custClasses() {
   const t = TODAY(), cl = UI.cl;
   const list = S.classes.filter(c => c.status === 'active' && sessionsOf(c).some(d => d >= t));
-  return `<section class="stack"><h2>Classes</h2>${cl.done ? `<div class="flash">${esc(cl.done)}<button class="btn sm" data-act="cldone">OK</button></div>` : ''}
+  return `<section class="stack"><h2>Classes</h2>
     ${list.length ? '' : '<p class="muted">No classes are open for registration right now.</p>'}
     <div class="grid2">${list.map(c => { const left = c.capacity - enrolled(c);
       return `<div class="card stack"><div><h3>${esc(c.name)}</h3><p class="muted" style="margin:4px 0 0">${esc(c.desc)}</p></div>
       <dl class="kv"><dt>When</dt><dd>${classSchedule(c)}</dd><dt>Where</dt><dd>${resLabel(c.resources)}</dd><dt>Price</dt><dd>${money(c.price)} for the full session</dd>
       <dt>Spots</dt><dd>${left > 0 ? `${left} of ${c.capacity} left` : '<span class="pill bad">Full</span>'}</dd></dl>
-      ${cl.open === c.id ? `<div class="stack"><div class="fields">${txt('UI.cl.name', 'Player name')}${txt('UI.cl.email', 'Parent or player email', 'email')}${txt('UI.cl.phone', 'Phone', 'tel')}</div>
-        ${cl.err ? `<div class="err">${esc(cl.err)}</div>` : ''}<div class="row"><button class="btn primary" data-act="clpay" data-id="${c.id}">Pay ${money(c.price)} and register</button><button class="btn" data-act="clopen" data-id="">Cancel</button></div>
-        <p class="small muted">Demo checkout: no card is charged.</p></div>`
-        : `<div><button class="btn primary" data-act="clopen" data-id="${c.id}" ${left > 0 ? '' : 'disabled'}>Register</button></div>`}</div>`; }).join('')}</div></section>`;
+      <div><button class="btn primary" data-act="coClass" data-id="${c.id}" ${left > 0 ? '' : 'disabled'}>Sign up</button></div></div>`; }).join('')}</div></section>`;
 }
 function custOpenGym() {
   const g = UI.og;
-  const form = (w, price) => g.which === w ? `<div class="stack"><div class="fields">${txt('UI.og.name', 'Name')}${txt('UI.og.email', 'Email', 'email')}${w === 'drop' ? `<label class="field"><span>Day</span>${dateInp('UI.og.date', false)}</label>` : ''}</div>
-      ${g.err ? `<div class="err">${esc(g.err)}</div>` : ''}<div class="row"><button class="btn primary" data-act="ogpay" data-val="${w}">Pay ${money(price)}${w === 'mem' ? ' / month' : ''}</button><button class="btn" data-act="ogopen" data-val="">Cancel</button></div>
-      <p class="small muted">Demo checkout: no card is charged.</p></div>` : `<div><button class="btn primary" data-act="ogopen" data-val="${w}">${w === 'mem' ? 'Start membership' : 'Buy a drop-in pass'}</button></div>`;
-  return `<section class="stack"><h2>Open gym</h2>${g.done ? `<div class="flash">${esc(g.done)}<button class="btn sm" data-act="ogdone">OK</button></div>` : ''}
+  const form = w => `<div class="stack" style="gap:8px">${w === 'drop' ? `<label class="field"><span>Day</span>${dateInp('UI.og.date', false)}</label>` : ''}
+      ${g.which === w && g.err ? `<div class="err">${esc(g.err)}</div>` : ''}<div><button class="btn primary" data-act="coOpen" data-val="${w}">${w === 'mem' ? 'Start membership' : 'Buy a drop-in pass'}</button></div></div>`;
+  return `<section class="stack"><h2>Open gym</h2>
     <div class="grid2"><div class="card stack"><h3>Monthly membership</h3><div class="stat"><b>${money(S.membership)}</b><span class="muted">per month, billed automatically</span></div>
       <p style="margin:0">Unlimited open-gym visits. Cancel anytime; access runs to the end of the paid month.</p>${form('mem', S.membership)}</div>
     <div class="card stack"><h3>Single-day drop-in</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of open gym</span></div>
       <p style="margin:0">No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
 }
 function custMine() {
-  const e = (UI.my.email || '').trim().toLowerCase();
-  let out = `<section class="card stack"><h2>My bookings</h2><div class="row"><label class="field" style="flex:1 1 240px"><span>Email used at checkout</span><input type="email" ${bind('UI.my.email', true)} value="${esc(UI.my.email)}" placeholder="you@example.com"></label><button class="btn primary" data-act="noop" style="align-self:end">Look up</button></div>`;
-  if (!e) return out + `<p class="small muted">Try marcus.reed@example.com to see a sample.</p></section>`;
+  const u = me();
+  if (!u) return needLogin('see your account', 'account');
+  const e = u.email.trim().toLowerCase(), a = appOf(u);
+  const access = u.access === 'approved' ? '<span class="pill ok">Approved for court rentals</span>'
+    : a && a.status === 'pending' ? '<span class="pill warn">Court-rental application pending</span>'
+    : `<span class="pill gray">Not approved for court rentals</span> <button class="btn sm" data-act="tab" data-val="book">Apply</button>`;
+  let out = `<section class="card stack"><div class="row"><h2 style="flex:1">My account</h2><button class="btn sm" data-act="logout">Log out</button></div>
+    <dl class="kv"><dt>Name</dt><dd>${esc(u.name)}</dd><dt>Username</dt><dd>${esc(u.username)}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Phone</dt><dd>${esc(u.phone || '—')}</dd><dt>Court rentals</dt><dd>${access}</dd></dl>`;
   const t = TODAY();
   const rs = S.reservations.filter(r => r.customer.email.toLowerCase() === e).sort((a, b) => (b.date + p4(b.start)).localeCompare(a.date + p4(a.start)));
   const gs = S.regs.filter(g => g.email.toLowerCase() === e);
   const ms = S.members.filter(m => m.email.toLowerCase() === e);
   const dd = S.dropins.filter(d => d.email.toLowerCase() === e);
-  if (!rs.length && !gs.length && !ms.length && !dd.length) return out + `<p class="muted">Nothing found for ${esc(e)}.</p></section>`;
-  if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Paid</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.paid)}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : '<span class="pill ok">Confirmed</span>'}</td></tr>`).join('')}</table></div></div>`;
-  if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}</p>`; }).join('')}</div>`;
-  if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}</p>`).join('')}</div>`;
-  if (dd.length) out += `<div><div class="lab">Drop-in passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}</p>`).join('')}</div>`;
+  if (!rs.length && !gs.length && !ms.length && !dd.length) return out + `<p class="muted" style="margin:0">No bookings, classes or passes yet.</p></section>`;
+  const due = n => n > 0 ? `<br><span class="pill warn">${money(n)} due at desk</span>` : '';
+  if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Price</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.total)}${r.status === 'confirmed' ? due(r2(r.total - r.paid)) : ''}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : '<span class="pill ok">Confirmed</span>'}</td></tr>`).join('')}</table></div></div>`;
+  if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}${g.status === 'active' ? due(g.due || 0) : ''}</p>`; }).join('')}</div>`;
+  if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}${due(m.owed || 0)}</p>`).join('')}</div>`;
+  if (dd.length) out += `<div><div class="lab">Drop-in passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}${due(d.due || 0)}</p>`).join('')}</div>`;
   return out + `</section>`;
 }
 
@@ -696,8 +834,45 @@ function ownerMembers() {
       <div><button class="btn" data-act="memAdd">Add and charge ${money(S.membership)}</button></div></div>
     <h3>Drop-ins</h3><div class="card tbl" style="padding:0"><table><tr><th>Day</th><th>Name</th><th class="num">Paid</th></tr>${[...S.dropins].reverse().map(d => `<tr><td>${fmtD(d.date)}</td><td>${esc(d.name)}<br><span class="small muted">${esc(d.email)}</span></td><td class="num">${money(d.price)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None yet.</td></tr>'}</table></div></div>`;
 }
+function ownerLogin() {
+  const f = UI.olog;
+  return `<section class="card stack narrow"><h2>Owner login</h2>
+    <div class="stack" style="gap:10px">${txt('UI.olog.user', 'Username')}<label class="field"><span>Password</span><input type="password" ${bind('UI.olog.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
+    ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
+    <div class="row"><button class="btn primary" data-act="doOwnerLogin">Log in</button><button class="btn" data-act="view" data-val="customer">Back to website</button></div></section>`;
+}
+function ownerCustomers() {
+  const pend = S.apps.filter(a => a.status === 'pending').sort((a, b) => a.at.localeCompare(b.at));
+  const uOf = id => S.users.find(u => u.id === id);
+  const accPill = u => u.access === 'approved' ? '<span class="pill ok">Approved</span>' : u.access === 'pending' ? '<span class="pill warn">Pending</span>' : u.access === 'declined' ? '<span class="pill bad">Declined</span>' : '<span class="pill gray">Not applied</span>';
+  const q = (UI.cq || '').toLowerCase();
+  const users = S.users.filter(u => !q || (u.name + ' ' + u.username + ' ' + u.email).toLowerCase().includes(q)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return `<div class="stack"><h2>Customers</h2>
+    <h3>Court-rental applications ${pend.length ? `<span class="badge">${pend.length}</span>` : ''}</h3>
+    ${pend.length ? `<div class="grid2">${pend.map(a => { const u = uOf(a.userId); return `<div class="card stack"><div><h3>${esc(u.name)}</h3><p class="small muted" style="margin:2px 0 0">${esc(u.email)} · ${esc(u.phone || '')} · applied ${fmtD(a.at.slice(0, 10))}</p></div>
+      <dl class="kv"><dt>Use</dt><dd>${esc(a.use)}</dd>${a.org ? `<dt>Group</dt><dd>${esc(a.org)}</dd>` : ''}<dt>Size</dt><dd>${esc(a.size || '—')}</dd><dt>When</dt><dd>${esc(a.when || '—')}</dd>${a.notes ? `<dt>Notes</dt><dd>${esc(a.notes)}</dd>` : ''}</dl>
+      <label class="field"><span>Note to customer (optional, sent if declined)</span><input type="text" ${bind(`UI.dnote.${a.id}`)} value="${esc((UI.dnote || {})[a.id] || '')}"></label>
+      <div class="row"><button class="btn primary" data-act="approve" data-id="${a.id}">Approve</button>${askBtn('dec' + a.id, 'Decline', 'decline', `data-id="${a.id}"`)}</div></div>`; }).join('')}</div>`
+      : '<p class="muted" style="margin:0">No applications waiting.</p>'}
+    <div class="row"><h3 style="flex:1">All accounts (${S.users.length})</h3><input type="text" ${bind('UI.cq', true)} value="${esc(UI.cq || '')}" placeholder="Search name, username or email"></div>
+    <div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>Username</th><th>Joined</th><th>Court rentals</th><th></th></tr>
+    ${users.map(u => `<tr><td>${esc(u.name)}<br><span class="small muted">${esc(u.email)} · ${esc(u.phone || '')}</span></td><td>${esc(u.username)}</td><td>${fmtD(u.createdAt.slice(0, 10))}</td><td>${accPill(u)}</td>
+      <td>${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
+    <p class="small muted" style="margin:0">Approved customers can book court time online. Everyone with an account can sign up for classes and open gym.</p></div>`;
+}
+function duesList() {
+  const out = [];
+  for (const r of S.reservations) if (r.status === 'confirmed' && r.total - r.paid > 0.004) out.push({ kind: 'res', id: r.id, who: r.customer.name, what: `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, amt: r2(r.total - r.paid) });
+  for (const g of S.regs) if (g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ kind: 'reg', id: g.id, who: g.name, what: c.name, amt: g.due }); }
+  for (const m of S.members) if ((m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, who: m.name, what: 'Open-gym membership', amt: m.owed });
+  for (const d of S.dropins) if ((d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, who: d.name, what: `Drop-in ${fmtD(d.date)}`, amt: d.due });
+  return out;
+}
 function ownerPayments() {
   const t = TODAY(), mo = t.slice(0, 7);
+  const dues = duesList();
+  const dueHTML = `<h3>Waiting for payment at the desk</h3><div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>For</th><th class="num">Due</th><th></th></tr>
+    ${dues.map(d => `<tr><td>${esc(d.who)}</td><td>${esc(d.what)}</td><td class="num">${money(d.amt)}</td><td><button class="btn sm" data-act="payDue" data-kind="${d.kind}" data-id="${d.id}">Mark paid</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing due.</td></tr>'}</table></div>`;
   const sum = f => r2(S.txns.filter(f).reduce((a, x) => a + x.amount, 0));
   const list = [...S.txns].sort((a, b) => b.at.localeCompare(a.at));
   const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Drop-in', refund: 'Refund', adjustment: 'Adjustment' };
@@ -705,7 +880,8 @@ function ownerPayments() {
     <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="card stat"><span class="muted small">Today (net)</span><b>${money(sum(x => x.at.slice(0, 10) === t))}</b></div>
       <div class="card stat"><span class="muted small">This month (net)</span><b>${money(sum(x => x.at.slice(0, 7) === mo))}</b></div>
       <div class="card stat"><span class="muted small">Refunds this month</span><b>${money(-sum(x => x.amount < 0 && x.at.slice(0, 7) === mo))}</b></div>
-      <div class="card stat"><span class="muted small">Unpaid rentals</span><b>${money(S.reservations.filter(r => r.status === 'confirmed').reduce((a, r) => a + Math.max(0, r.total - r.paid), 0))}</b></div></div>
+      <div class="card stat"><span class="muted small">Due at desk</span><b>${money(dues.reduce((a, d) => a + d.amt, 0))}</b></div></div>
+    ${dueHTML}<h3>All payments</h3>
     <div class="card tbl" style="padding:0"><table><tr><th>When</th><th>Type</th><th>Description</th><th>Method</th><th class="num">Amount</th><th></th></tr>
     ${list.map(x => { const left = x.amount > 0 ? r2(x.amount - refundedOf(x)) : 0;
       return `<tr><td class="small">${new Date(x.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${TL[x.type] || x.type}</td><td>${esc(x.desc)}</td><td class="small">${x.method === 'card' ? 'Card' : 'Cash/desk'}</td>
@@ -715,6 +891,9 @@ function ownerSettings() {
   return `<div class="stack"><h2>Settings</h2><div class="card stack"><h3>Open hours</h3><p class="small muted" style="margin:0">Customers can book only inside these hours. You can still block or book any time from the calendar.</p>
     <div class="tbl"><table>${DAYS.map((d, i) => { const h = S.hours[i];
       return `<tr><td><b>${d}</b></td><td><label class="check"><input type="checkbox" data-act="hoursToggle" data-i="${i}" ${h ? 'checked' : ''}> Open</label></td><td>${h ? `${timeSel(`S.hours.${i}.0`, 0, 1410)} to ${timeSel(`S.hours.${i}.1`, 30, 1440)}` : '<span class="muted">Closed</span>'}</td></tr>`; }).join('')}</table></div></div>
+    <div class="card stack"><h3>Online payments</h3><p style="margin:0"><span class="pill warn">Not connected</span> Customers confirm at checkout and pay at the front desk. Record those payments under Payments → Waiting for payment.</p>
+      <p class="small muted" style="margin:0">Once a Stripe account is connected, the checkout page's card form switches on and memberships bill automatically.</p></div>
+    <div class="card stack"><h3>Owner login</h3><p class="small muted" style="margin:0">Logged in as <b>${OWNER.username}</b>. To change the owner password, ask your site administrator. It's set in the site code until the site has a shared database.</p><div><button class="btn" data-act="logout">Log out</button></div></div>
     <div class="card stack"><h3>Demo data</h3><p class="small muted" style="margin:0">Everything in this demo saves in your browser only. Reset to start over with the sample bookings.</p><div>${askBtn('reset', 'Reset demo data', 'reset')}</div></div></div>`;
 }
 
@@ -722,22 +901,33 @@ function ownerSettings() {
 const app = document.getElementById('app');
 function render() {
   const active = document.activeElement && document.activeElement.id;
-  const cust = UI.view === 'customer';
-  const ctabs = [['book', 'Book a court'], ['classes', 'Classes'], ['opengym', 'Open gym'], ['mine', 'My bookings']];
-  const otabs = [['calendar', 'Calendar'], ['reservations', 'Reservations'], ['pricing', 'Pricing'], ['classes', 'Classes'], ['members', 'Memberships'], ['payments', 'Payments'], ['settings', 'Settings']];
-  const tabs = (cust ? ctabs : otabs).map(([k, l]) => `<button data-act="tab" data-val="${k}" ${(cust ? UI.ctab : UI.otab) === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  if (UI.view === 'owner' && !isOwner()) UI.view = 'ownerlogin';
+  const cust = UI.view === 'customer', ologin = UI.view === 'ownerlogin', u = me();
+  const pending = S.apps.filter(a => a.status === 'pending').length;
+  const ctabs = [['classes', 'Classes'], ['opengym', 'Open gym'], ['book', 'Rent a court'], ['account', u ? 'My account' : 'Log in']];
+  const otabs = [['calendar', 'Calendar'], ['reservations', 'Reservations'], ['customers', `Customers${pending ? `<span class="badge">${pending}</span>` : ''}`], ['pricing', 'Pricing'], ['classes', 'Classes'], ['members', 'Memberships'], ['payments', 'Payments'], ['settings', 'Settings']];
+  const tabs = ologin ? '' : (cust ? ctabs : otabs).map(([k, l]) => `<button data-act="tab" data-val="${k}" ${(cust ? UI.ctab : UI.otab) === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  const who = ologin ? '' : cust
+    ? (u ? `<div class="who"><span class="muted">Hi, ${esc(u.name.split(' ')[0])}</span><button class="btn sm" data-act="logout">Log out</button></div>`
+         : `<div class="who"><button class="btn sm" data-act="goAuth" data-val="login" data-after="">Log in</button><button class="btn sm primary" data-act="goAuth" data-val="signup" data-after="">Sign up</button></div>`)
+    : `<div class="who"><button class="btn sm" data-act="view" data-val="customer">View website</button><button class="btn sm" data-act="logout">Log out</button></div>`;
   let body;
-  if (cust) body = { book: custBook, classes: custClasses, opengym: custOpenGym, mine: custMine }[UI.ctab]();
-  else {
-    const main = { calendar: ownerCalendar, reservations: ownerReservations, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
+  if (ologin) body = ownerLogin();
+  else if (cust) {
+    if (UI.ctab === 'account' && !u) { UI.ctab = 'login'; UI.after = 'account'; }
+    if (UI.ctab === 'checkout' && !u) UI.ctab = 'login';
+    body = { book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
+  } else {
+    const main = { calendar: ownerCalendar, reservations: ownerReservations, customers: ownerCustomers, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
     const p = UI.panel;
     const panel = p ? `<aside class="panel" aria-label="Details">${{ sel: selPanel, item: itemPanel, res: resPanel, cancel: cancelPanel, cls: classPanel }[p.type](p)}</aside>` : '';
     body = `${UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : ''}<div class="owner${p ? ' has-panel' : ''}"><div style="min-width:0">${main}</div>${panel}</div>`;
   }
-  app.innerHTML = `<div class="demo"><div class="wrap"><b>Preview: online booking is not live yet</b><div class="seg"><button data-act="view" data-val="customer" ${pressed(cust)}>Customer website</button><button data-act="view" data-val="owner" ${pressed(!cust)}>Owner admin</button></div>
-      <span>Nothing booked here is reserved and no card is charged. Changes save only in your browser.</span></div></div>
-    <header class="top"><div class="wrap"><div class="brand"><h1>StackLab Tomball</h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div><nav class="tabs">${tabs}</nav></div></header>
-    <main class="wrap">${body}</main>`;
+  app.innerHTML = `<div class="demo"><div class="wrap"><b>Preview: online booking is not live yet</b>
+      <span>Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.</span></div></div>
+    <header class="top"><div class="wrap"><div class="brand"><h1>StackLab Tomball</h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div>${who}<nav class="tabs" style="flex-basis:100%">${tabs}</nav></div></header>
+    <main class="wrap">${body}
+      ${cust ? `<footer class="foot"><span>StackLab Tomball · 18618 FM 2920, Tomball, TX</span><button class="linkbtn" data-act="view" data-val="owner">Owner login</button></footer>` : ''}</main>`;
   bindCal();
   if (active) { const el = document.getElementById(active); if (el && el.focus) el.focus({ preventScroll: true }); }
 }
@@ -793,48 +983,135 @@ const ACT = {
   // customer
   cmode(a) { UI.cs.mode = a.dataset.val; UI.cs.start = null; }, cpick(a) { ACT.togArr({ dataset: { path: 'UI.cs.custom', val: a.dataset.val } }); UI.cs.start = null; },
   cdate(a) { UI.cs.date = a.dataset.val; UI.cs.start = null; }, cstart(a) { UI.cs.start = +a.dataset.val; UI.cs.err = ''; },
-  cpay() {
-    const c = UI.cs; c.err = '';
-    if (!c.name.trim()) return void (c.err = 'Enter your name.');
-    if (!validEmail(c.email)) return void (c.err = 'Enter a valid email so we can send your confirmation.');
-    if ((c.card || '').replace(/\D/g, '').length < 12) return void (c.err = 'Enter a card number.');
-    const o = startOptions(c.date, c.dur).find(x => x.m === c.start);
-    if (!o || !o.set) { c.start = null; return void (c.err = 'Someone just booked that time. Pick another start time.'); }
+  // checkout: build the order, then place it unpaid (pay at the desk until card payments are connected)
+  coBook() {
+    const c = UI.cs, o = startOptions(c.date, c.dur).find(x => x.m === c.start);
+    if (!o || !o.set) { c.start = null; return; }
     const q = quote(c.date, o.set, c.start, c.start + c.dur);
-    const r = createReservation({ date: c.date, resources: o.set, start: c.start, end: c.start + c.dur, customer: { name: c.name.trim(), email: c.email.trim(), phone: c.phone.trim() }, total: q.total, lines: q.lines, method: 'card', by: 'customer' });
-    notify(r.customer.email, `Booking confirmed: ${r.code}`, `${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}. Paid ${money(r.paid)}. StackLab Tomball, 18618 FM 2920.`);
-    c.done = r.id; c.start = null; save(); window.scrollTo(0, 0);
+    UI.co = { kind: 'res', back: 'book', title: 'Court rental', date: c.date, set: o.set, start: c.start, end: c.start + c.dur, lines: q.lines, total: q.total,
+      rows: [['Space', resLabel(o.set)], ['Date', fmtD(c.date, { weekday: 'long', month: 'long', day: 'numeric' })], ['Time', `${fmtT(c.start)} – ${fmtT(c.start + c.dur)} (${fmtDur(c.dur)})`]],
+      phone: me().phone || '', err: '', done: '' };
+    UI.ctab = 'checkout'; window.scrollTo(0, 0);
   },
-  bookAnother() { UI.cs.done = null; },
-  clopen(a) { UI.cl.open = a.dataset.id || null; UI.cl.err = ''; }, cldone() { UI.cl.done = null; },
-  clpay(a) {
-    const c = find('classes', a.dataset.id), f = UI.cl; f.err = '';
-    if (!f.name.trim()) return void (f.err = "Enter the player's name.");
-    if (!validEmail(f.email)) return void (f.err = 'Enter a valid email.');
-    if (enrolled(c) >= c.capacity) return void (f.err = 'This class just filled up.');
-    const g = { id: uid('g'), classId: c.id, name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), status: 'active', paid: c.price, at: nowISO() };
-    S.regs.push(g); charge('class', `${c.name}: ${g.name}`, c.price, 'card', { kind: 'reg', id: g.id });
-    notify(g.email, `Registered: ${c.name}`, `${g.name} is registered. ${classSchedule(c)}. Paid ${money(c.price)}.`);
-    f.done = `${g.name} is registered for ${c.name}. A confirmation was sent to ${g.email}.`; f.open = null; f.name = ''; save();
+  coClass(a) {
+    const u = me(); if (!u) { UI.after = 'classes'; UI.ctab = 'signup'; return; }
+    const c = find('classes', a.dataset.id);
+    UI.co = { kind: 'class', back: 'classes', classId: c.id, title: c.name, lines: [{ label: c.name, rule: `${sessionsOf(c).length} sessions`, rate: c.price, hours: 1, amount: c.price }], total: c.price,
+      rows: [['When', classSchedule(c)], ['Where', resLabel(c.resources)]], player: u.name, phone: u.phone || '', err: '', done: '' };
+    UI.ctab = 'checkout'; window.scrollTo(0, 0);
   },
-  ogopen(a) { UI.og.which = a.dataset.val || null; UI.og.err = ''; if (!UI.og.date) UI.og.date = TODAY(); }, ogdone() { UI.og.done = null; },
-  ogpay(a) {
-    const g = UI.og, w = a.dataset.val; g.err = '';
-    if (!g.name.trim()) return void (g.err = 'Enter your name.');
-    if (!validEmail(g.email)) return void (g.err = 'Enter a valid email.');
-    if (w === 'mem') {
-      const t = TODAY(); const m = { id: uid('m'), name: g.name.trim(), email: g.email.trim(), start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '' };
-      S.members.push(m); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id });
-      notify(m.email, 'Welcome to StackLab open gym', `Your membership is active. ${money(m.price)} renews on ${fmtD(m.nextBill)} each month.`);
-      g.done = `Membership active. Next charge ${fmtD(m.nextBill)}.`;
+  coOpen(a) {
+    const g = UI.og, w = a.dataset.val; g.which = w; g.err = '';
+    const u = me(); if (!u) { UI.after = 'opengym'; UI.ctab = 'signup'; return; }
+    if (w === 'drop' && (!g.date || g.date < TODAY())) return void (g.err = 'Pick today or a later day.');
+    const price = w === 'mem' ? S.membership : S.dropIn;
+    UI.co = { kind: w, back: 'opengym', date: g.date, title: w === 'mem' ? 'Open-gym membership' : 'Open-gym drop-in',
+      lines: [{ label: w === 'mem' ? 'Monthly membership' : 'Drop-in pass', rule: w === 'mem' ? 'first month' : fmtD(g.date), rate: price, hours: 1, amount: price }], total: price,
+      rows: w === 'mem' ? [['Starts', fmtD(TODAY(), { month: 'long', day: 'numeric' })], ['Renews', 'Monthly, cancel anytime']] : [['Day', fmtD(g.date, { weekday: 'long', month: 'long', day: 'numeric' })]],
+      phone: u.phone || '', err: '', done: '' };
+    UI.ctab = 'checkout'; window.scrollTo(0, 0);
+  },
+  placeOrder() {
+    const o = UI.co, u = me(); o.err = '';
+    if (!u) { UI.ctab = 'login'; return; }
+    if (o.phone && o.phone.trim() !== u.phone) u.phone = o.phone.trim();
+    const cust = { name: u.name, email: u.email, phone: u.phone || '' };
+    if (o.kind === 'res') {
+      if (u.access !== 'approved') return void (o.err = 'Your account is not approved for court rentals yet.');
+      const c = conflict(o.date, o.set, o.start, o.end);
+      if (c || (o.date === TODAY() && o.start <= nowMin())) return void (o.err = 'Someone just booked that time. Go back and pick another start time.');
+      const r = createReservation({ date: o.date, resources: o.set, start: o.start, end: o.end, customer: cust, total: o.total, lines: o.lines, method: 'unpaid', by: 'customer' });
+      r.userId = u.id;
+      notify(u.email, `Booking confirmed: ${r.code}`, `${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}. ${money(r.total)} due at the front desk. StackLab Tomball, 18618 FM 2920.`);
+      o.done = `Booking ${r.code}: ${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}.`;
+      UI.cs.start = null;
+    } else if (o.kind === 'class') {
+      const c = find('classes', o.classId);
+      if (!(o.player || '').trim()) return void (o.err = "Enter the player's name.");
+      if (c.status !== 'active' || enrolled(c) >= c.capacity) return void (o.err = 'This class just filled up.');
+      const g = { id: uid('g'), classId: c.id, userId: u.id, name: o.player.trim(), email: u.email, phone: u.phone || '', status: 'active', paid: 0, due: c.price, at: nowISO() };
+      S.regs.push(g);
+      notify(u.email, `Registered: ${c.name}`, `${g.name} is registered. ${classSchedule(c)}. ${money(c.price)} due at the front desk.`);
+      o.done = `${g.name} is registered for ${c.name}.`;
+    } else if (o.kind === 'mem') {
+      const t = TODAY(), m = { id: uid('m'), userId: u.id, name: u.name, email: u.email, start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '', owed: S.membership };
+      S.members.push(m);
+      notify(u.email, 'Welcome to StackLab open gym', `Your membership is active. Pay the first ${money(m.price)} at the front desk. Renews ${fmtD(m.nextBill)}.`);
+      o.done = `Your open-gym membership is active. Next renewal ${fmtD(m.nextBill)}.`;
     } else {
-      if (!g.date || g.date < TODAY()) return void (g.err = 'Pick today or a later day.');
-      const d = { id: uid('d'), name: g.name.trim(), email: g.email.trim(), date: g.date, price: S.dropIn }; S.dropins.push(d);
-      charge('dropin', `Open-gym drop-in: ${d.name} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id });
-      notify(d.email, 'Open-gym pass', `Drop-in for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. Paid ${money(d.price)}.`);
-      g.done = `Drop-in pass for ${fmtD(d.date)} confirmed.`;
+      const d = { id: uid('d'), userId: u.id, name: u.name, email: u.email, date: o.date, price: S.dropIn, due: S.dropIn };
+      S.dropins.push(d);
+      notify(u.email, 'Open-gym pass', `Drop-in for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. ${money(d.price)} due at the front desk.`);
+      o.done = `Drop-in pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
     }
-    g.which = null; save();
+    save(); window.scrollTo(0, 0);
+  },
+  // accounts
+  goAuth(a) { UI.ctab = a.dataset.val; UI.after = a.dataset.after || UI.after || ''; UI.auth.err = ''; UI.auth.pw = ''; UI.auth.pw2 = ''; window.scrollTo(0, 0); },
+  doLogin() {
+    const f = UI.auth; f.err = '';
+    const u = userByLogin(f.id);
+    if (!u || hashPw(f.pw, u.salt) !== u.hash) return void (f.err = 'That username or password is not right.');
+    SESSION = { kind: 'customer', userId: u.id }; saveSession();
+    UI.auth = blankAuth(); UI.ctab = UI.after || 'classes'; UI.after = ''; window.scrollTo(0, 0);
+  },
+  doSignup() {
+    const f = UI.auth; f.err = '';
+    const name = f.name.trim(), email = f.email.trim(), user = f.user.trim();
+    if (!name) return void (f.err = 'Enter your full name.');
+    if (!validEmail(email)) return void (f.err = 'Enter a valid email.');
+    if (!/^[A-Za-z0-9_.-]{3,30}$/.test(user)) return void (f.err = 'Usernames are 3–30 letters, numbers, dots, dashes or underscores.');
+    if (S.users.some(x => x.username.toLowerCase() === user.toLowerCase())) return void (f.err = 'That username is taken. Try another.');
+    if (S.users.some(x => x.email.toLowerCase() === email.toLowerCase())) return void (f.err = 'An account with that email already exists. Log in instead.');
+    if ((f.pw || '').length < 8) return void (f.err = 'Use a password of at least 8 characters.');
+    if (f.pw !== f.pw2) return void (f.err = "The two passwords don't match.");
+    const salt = newSalt(), u = { id: uid('u'), name, username: user, email, phone: f.phone.trim(), salt, hash: hashPw(f.pw, salt), createdAt: nowISO(), access: 'none' };
+    S.users.push(u); SESSION = { kind: 'customer', userId: u.id }; saveSession();
+    notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`);
+    UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; save(); window.scrollTo(0, 0);
+  },
+  logout() { SESSION = null; saveSession(); UI.view = 'customer'; UI.ctab = 'classes'; UI.co = null; UI.panel = null; window.scrollTo(0, 0); },
+  doApply() {
+    const u = me(), f = UI.ap; f.err = ''; if (!u) return;
+    if (!f.size.trim() || !f.when.trim()) return void (f.err = 'Tell us roughly how many people and when you would book.');
+    if (!f.rules) return void (f.err = 'Please agree to the gym rules.');
+    S.apps.push({ id: uid('a'), userId: u.id, at: nowISO(), status: 'pending', decidedAt: '', ownerNote: '', use: f.use, org: f.org.trim(), size: f.size.trim(), when: f.when.trim(), notes: f.notes.trim() });
+    u.access = 'pending';
+    notify(u.email, 'Application received', 'Thanks for applying to rent court time at StackLab Tomball. We will email you when it is reviewed.');
+    UI.ap = blankApp(); save();
+  },
+  // owner login + approvals
+  doOwnerLogin() {
+    const f = UI.olog; f.err = '';
+    if (f.user.trim().toLowerCase() !== OWNER.username || hashPw(f.pw, OWNER.salt) !== OWNER.hash) return void (f.err = 'That username or password is not right.');
+    SESSION = { kind: 'owner' }; saveSession(); UI.olog = { user: '', pw: '', err: '' }; UI.view = 'owner'; window.scrollTo(0, 0);
+  },
+  approve(a) {
+    const ap = find('apps', a.dataset.id), u = S.users.find(x => x.id === ap.userId);
+    ap.status = 'approved'; ap.decidedAt = nowISO(); u.access = 'approved';
+    notify(u.email, 'You are approved to rent courts', 'Your StackLab Tomball account can now book court time online. Log in and choose "Rent a court".');
+    UI.flash = `Approved ${u.name}. They can book court time now.`; save();
+  },
+  decline(a) {
+    const ap = find('apps', a.dataset.id), u = S.users.find(x => x.id === ap.userId), note = ((UI.dnote || {})[ap.id] || '').trim();
+    ap.status = 'declined'; ap.decidedAt = nowISO(); ap.ownerNote = note; u.access = 'declined';
+    notify(u.email, 'About your court-rental application', `We are not able to approve court rentals for your account right now.${note ? ' ' + note : ''} Classes and open gym are still open to you.`);
+    UI.flash = `Declined ${u.name}'s application.`; UI.confirm = null; save();
+  },
+  grant(a) {
+    const u = S.users.find(x => x.id === a.dataset.id); u.access = 'approved';
+    S.apps.filter(x => x.userId === u.id && x.status === 'pending').forEach(x => { x.status = 'approved'; x.decidedAt = nowISO(); });
+    notify(u.email, 'You are approved to rent courts', 'Your StackLab Tomball account can now book court time online.');
+    UI.flash = `Approved ${u.name}.`; save();
+  },
+  revoke(a) { const u = S.users.find(x => x.id === a.dataset.id); u.access = 'none'; UI.flash = `${u.name} can no longer book court time online. Existing bookings stay.`; UI.confirm = null; save(); },
+  payDue(a) {
+    const k = a.dataset.kind, id = a.dataset.id;
+    if (k === 'res') return ACT.markPaid({ dataset: { id } });
+    if (k === 'reg') { const g = find('regs', id), c = find('classes', g.classId); charge('class', `${c.name}: ${g.name}`, g.due, 'cash', { kind: 'reg', id }); g.paid = r2((g.paid || 0) + g.due); UI.flash = `Recorded ${money(g.due)} from ${g.name}.`; g.due = 0; }
+    if (k === 'mem') { const m = find('members', id); charge('membership', `Open-gym membership: ${m.name}`, m.owed, 'cash', { kind: 'mem', id }); UI.flash = `Recorded ${money(m.owed)} from ${m.name}.`; m.owed = 0; }
+    if (k === 'drop') { const d = find('dropins', id); charge('dropin', `Open-gym drop-in: ${d.name} (${fmtD(d.date)})`, d.due, 'cash', { kind: 'drop', id }); UI.flash = `Recorded ${money(d.due)} from ${d.name}.`; d.due = 0; }
+    save();
   },
   // owner calendar
   odate(a) { UI.oc.date = a.dataset.val; UI.panel = null; UI.oc.sel = null; },
@@ -976,7 +1253,7 @@ app.addEventListener('change', e => {
   if ('rr' in el.dataset || el.type === 'checkbox' || el.tagName === 'SELECT') render();
 });
 
-load();
+load(); loadSession();
 UI.cs.date = TODAY(); UI.oc.date = TODAY(); UI.og.date = TODAY();
 try { if (location.hash === '#owner') UI.view = 'owner'; } catch (e) {}
 render();
