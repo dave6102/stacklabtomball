@@ -237,6 +237,12 @@ const newSalt = () => Array.from({ length: 8 }, () => Math.floor(Math.random() *
 const OWNER = { username: 'stacklab', salt: '6a34daba6bdc9b76', hash: '8f8f0c78a237bd8fae9269463ef899a2252887af37b1db0e37e39fceff9a2108' };
 
 /* ===================== state ===================== */
+// Online payments. When StackLab has a Stripe account, create Payment Links in the Stripe Dashboard
+// (Payment Links -> New) and paste the URLs here. 'balance' must be a link set to
+// "Customers choose what to pay" so it works for any amount; 'membership' should be a monthly subscription link.
+// Leave a value blank and that option shows "pay at the front desk" instead.
+const PAY = { balance: '', membership: '' };
+const payLink = (url, u, ref) => url ? `${url}${url.includes('?') ? '&' : '?'}prefilled_email=${encodeURIComponent(u.email)}&client_reference_id=${encodeURIComponent(ref)}` : '';
 const KEY = 'stacklab-demo-v1', SKEY = 'stacklab-session-v1';
 let S;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -438,9 +444,10 @@ const UI = {
   og: { which: null, name: '', email: '', date: '', err: '', done: null },
   my: { email: '' },
   oc: { date: '', sel: null, extending: false },
-  panel: null, rf: { filter: 'upcoming', q: '' }, oclass: null, confirm: null, flash: '',
+  panel: null, rf: { filter: 'upcoming', q: '' }, oclass: null, confirm: null, flash: '', pwc: { cur: '', n1: '', n2: '', err: '', ok: '' }, paym: 'online',
 };
-const blankAuth = () => ({ id: '', pw: '', pw2: '', name: '', email: '', phone: '', user: '', err: '' });
+const blankAuth = () => ({ id: '', pw: '', pw2: '', name: '', email: '', phone: '', user: '', agree: false, err: '' });
+const blankPwc = () => ({ cur: '', n1: '', n2: '', err: '', ok: '' });
 const blankApp = () => ({ use: 'Team practice', org: '', size: '', when: '', notes: '', rules: false, err: '' });
 UI.auth = blankAuth(); UI.ap = blankApp();
 const ROOT = { get S() { return S; }, UI };
@@ -492,7 +499,8 @@ function custLogin() {
     <div class="stack" style="gap:10px">${txt('UI.auth.id', 'Username or email')}<label class="field"><span>Password</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
     ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
     <div><button class="btn primary" data-act="doLogin">Log in</button></div>
-    <p class="small muted" style="margin:0">New here? <button class="linkbtn" data-act="goAuth" data-val="signup" data-after="${esc(UI.after || '')}">Create an account</button></p></section>`;
+    <p class="small muted" style="margin:0">New here? <button class="linkbtn" data-act="goAuth" data-val="signup" data-after="${esc(UI.after || '')}">Create an account</button></p>
+    <p class="small muted" style="margin:0">Forgot your password? Ask at the front desk. Staff can give you a temporary password, then you can change it under My account.</p></section>`;
 }
 function custSignup() {
   const f = UI.auth;
@@ -500,7 +508,8 @@ function custSignup() {
     <p class="small muted" style="margin:0">With an account you can sign up for classes and open gym right away. To rent court time, you also apply once and the owner approves you.</p>
     <div class="stack" style="gap:10px">${txt('UI.auth.name', 'Full name')}${txt('UI.auth.email', 'Email', 'email')}${txt('UI.auth.phone', 'Phone', 'tel')}${txt('UI.auth.user', 'Choose a username')}
       <label class="field"><span>Password (at least 8 characters)</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="new-password"></label>
-      <label class="field"><span>Confirm password</span><input type="password" ${bind('UI.auth.pw2')} value="${esc(f.pw2)}" autocomplete="new-password"></label></div>
+      <label class="field"><span>Confirm password</span><input type="password" ${bind('UI.auth.pw2')} value="${esc(f.pw2)}" autocomplete="new-password"></label>
+      <label class="check"><input type="checkbox" ${bind('UI.auth.agree')} ${f.agree ? 'checked' : ''}> I agree to the <button class="linkbtn" data-act="tab" data-val="policies">StackLab policies and liability waiver</button>. If I sign up a child, I agree for them as their parent or guardian.</label></div>
     ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
     <div><button class="btn primary" data-act="doSignup">Create account</button></div>
     <p class="small muted" style="margin:0">Already have one? <button class="linkbtn" data-act="goAuth" data-val="login" data-after="${esc(UI.after || '')}">Log in</button></p></section>`;
@@ -529,24 +538,23 @@ function custCheckout() {
   const o = UI.co, u = me();
   if (!o) return `<section class="card stack narrow"><h2>Checkout</h2><p class="muted" style="margin:0">Your cart is empty.</p><div><button class="btn" data-act="tab" data-val="classes">Browse classes</button></div></section>`;
   if (o.done) return `<section class="card done stack narrow"><h2>You're all set</h2><p style="margin:0">${esc(o.done)}</p>
-    <p class="small" style="margin:0">A confirmation was sent to ${esc(u ? u.email : '')}. Pay ${money(o.total)} at the front desk when you arrive.</p>
-    <div class="row"><button class="btn primary" data-act="tab" data-val="account">My account</button><button class="btn" data-act="tab" data-val="${o.back}">${o.kind === 'res' ? 'Book another time' : 'Back'}</button></div></section>`;
+    <p class="small" style="margin:0">A confirmation was sent to ${esc(u ? u.email : '')}. ${money(o.total)} is due: pay online on the Payments page or at the front desk when you arrive.</p>
+    <div class="row"><button class="btn primary" data-act="tab" data-val="pay">Pay now</button><button class="btn" data-act="tab" data-val="account">My account</button><button class="btn" data-act="tab" data-val="${o.back}">${o.kind === 'res' ? 'Book another time' : 'Back'}</button></div></section>`;
   const rows = o.rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('');
   return `<section class="stack narrow"><div class="row"><button class="btn sm" data-act="tab" data-val="${o.back}">← Back</button><h2 style="flex:1">Checkout</h2></div>
     <div class="card stack"><h3>${esc(o.title)}</h3><dl class="kv">${rows}</dl>${linesHTML(o.lines, o.total)}</div>
     ${o.kind === 'class' ? `<div class="card stack"><h3>Player</h3><div class="fields">${txt('UI.co.player', 'Player name')}</div><p class="small muted" style="margin:0">Registering a child? Enter their name here; we'll contact you at your account email.</p></div>` : ''}
     <div class="card stack"><h3>Your details</h3><dl class="kv"><dt>Name</dt><dd>${esc(u.name)}</dd><dt>Email</dt><dd>${esc(u.email)}</dd></dl>${txt('UI.co.phone', 'Phone', 'tel')}</div>
-    <div class="card stack"><h3>Payment</h3>
-      <div class="notice">Online card payment is coming soon. Confirm now to hold your spot, then pay at the front desk.</div>
-      <div class="paybox" aria-label="Card payment, coming soon"><div class="fields">
-        <label class="field"><span>Name on card</span><input type="text" disabled placeholder="Coming soon"></label>
-        <label class="field"><span>Card number</span><input type="text" disabled placeholder="•••• •••• •••• ••••"></label>
-        <label class="field"><span>Expiry</span><input type="text" disabled placeholder="MM / YY"></label>
-        <label class="field"><span>CVC</span><input type="text" disabled placeholder="•••"></label>
-        <label class="field"><span>ZIP</span><input type="text" disabled placeholder="77375"></label></div></div>
+    <div class="card stack"><h3>How do you want to pay?</h3>
+      <div class="seg"><button data-act="paym" data-val="online" ${pressed(UI.paym === 'online')}>Pay online now</button><button data-act="paym" data-val="desk" ${pressed(UI.paym === 'desk')}>Pay at the front desk</button></div>
+      ${UI.paym === 'online' ? (onlineReady(o.kind)
+        ? `<p class="small muted" style="margin:0">After you confirm, you'll go to our secure payment page (Stripe) to pay ${money(o.total)} by card, Apple Pay or Google Pay. StackLab never sees your card number.</p>`
+        : `<div class="notice">Online card payment isn't switched on yet. Confirm now to hold your spot, then pay at the front desk. Your balance will also show under Payments.</div>`)
+        : `<p class="small muted" style="margin:0">Your spot is held now. Pay ${money(o.total)} by cash or card at the front desk before you play.</p>`}
       ${o.err ? `<div class="err">${esc(o.err)}</div>` : ''}
-      <div><button class="btn primary" data-act="placeOrder">Confirm — pay ${money(o.total)}${o.kind === 'mem' ? '/month' : ''} at the desk</button></div>
-      ${o.kind === 'mem' ? `<p class="small muted" style="margin:0">Membership renews monthly. Once card payments are live it will be charged automatically.</p>` : ''}</div></section>`;
+      <div><button class="btn primary" data-act="placeOrder">${UI.paym === 'online' && onlineReady(o.kind) ? `Confirm and pay ${money(o.total)}${o.kind === 'mem' ? '/month' : ''}` : `Confirm — pay ${money(o.total)}${o.kind === 'mem' ? '/month' : ''} at the desk`}</button></div>
+      <p class="small muted" style="margin:0">By confirming you agree to the <button class="linkbtn" data-act="tab" data-val="policies">cancellation and refund policy</button>.</p>
+      ${o.kind === 'mem' ? `<p class="small muted" style="margin:0">Membership renews monthly. Cancel anytime; access runs to the end of the paid month.</p>` : ''}</div></section>`;
 }
 function custBook() {
   const c = UI.cs, u = me();
@@ -588,6 +596,7 @@ function classSchedule(c) {
   const ss = sessionsOf(c);
   return `${c.days.map(d => DAYS[d]).join(' & ')} ${fmtT(c.start)}–${fmtT(c.end)} · ${ss.length ? fmtD(ss[0], { month: 'short', day: 'numeric' }) + ' – ' + fmtD(ss[ss.length - 1], { month: 'short', day: 'numeric' }) : 'no dates'} (${ss.length} sessions)`;
 }
+const canSelfCancel = r => r.status === 'confirmed' && (parse(r.date).getTime() + r.start * 60000 - Date.now()) >= 24 * 3600000;
 const enrolled = c => S.regs.filter(g => g.classId === c.id && g.status === 'active').length;
 function custClasses() {
   const t = TODAY(), cl = UI.cl;
@@ -610,6 +619,61 @@ function custOpenGym() {
     <div class="card stack"><h3>Single-day drop-in</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of open gym</span></div>
       <p style="margin:0">No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
 }
+const onlineReady = kind => !!(kind === 'mem' ? (PAY.membership || PAY.balance) : PAY.balance);
+const payRef = (kind, id) => (kind === 'res' ? (find('reservations', id) || {}).code : kind.toUpperCase() + '-' + id.slice(-5).toUpperCase());
+function myDues(u) {
+  const e = u.email.trim().toLowerCase(), out = [];
+  for (const r of S.reservations) if (r.customer.email.toLowerCase() === e && r.status === 'confirmed' && r.total - r.paid > 0.004)
+    out.push({ kind: 'res', id: r.id, what: `Court rental: ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)}`, amt: r2(r.total - r.paid) });
+  for (const g of S.regs) if (g.email.toLowerCase() === e && g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ kind: 'reg', id: g.id, what: `Class: ${c.name} (${g.name})`, amt: g.due }); }
+  for (const m of S.members) if (m.email.toLowerCase() === e && (m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, what: 'Open-gym membership', amt: m.owed });
+  for (const d of S.dropins) if (d.email.toLowerCase() === e && (d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, what: `Open-gym drop-in, ${fmtD(d.date)}`, amt: d.due });
+  return out.map(x => ({ ...x, ref: payRef(x.kind, x.id) }));
+}
+function myTxns(u) {
+  const e = u.email.trim().toLowerCase(), mine = new Set();
+  S.reservations.forEach(r => r.customer.email.toLowerCase() === e && mine.add('res:' + r.id));
+  S.regs.forEach(g => g.email.toLowerCase() === e && mine.add('reg:' + g.id));
+  S.members.forEach(m => m.email.toLowerCase() === e && mine.add('mem:' + m.id));
+  S.dropins.forEach(d => d.email.toLowerCase() === e && mine.add('drop:' + d.id));
+  return S.txns.filter(t => t.ref && mine.has(t.ref.kind + ':' + t.ref.id)).sort((a, b) => b.at.localeCompare(a.at));
+}
+function custPay() {
+  const u = me();
+  if (!u) return needLogin('pay a balance', 'pay');
+  const dues = myDues(u), total = r2(dues.reduce((a, d) => a + d.amt, 0)), tx = myTxns(u);
+  const refAll = `${u.username}: ${dues.map(d => d.ref).join(', ')}`;
+  let out = `<section class="stack narrow"><h2>Payments</h2>`;
+  if (!dues.length) out += `<div class="card done stack"><h3>You're all paid up</h3><p style="margin:0">Nothing is due on your account.</p></div>`;
+  else {
+    out += `<div class="card stack"><h3>Balance due</h3><div class="tbl"><table><tr><th>For</th><th>Ref</th><th class="num">Amount</th></tr>
+      ${dues.map(d => `<tr><td>${esc(d.what)}</td><td class="small" style="white-space:nowrap">${esc(d.ref)}</td><td class="num">${money(d.amt)}</td></tr>`).join('')}
+      <tr><td colspan="2"><b>Total due</b></td><td class="num"><b>${money(total)}</b></td></tr></table></div></div>
+    <div class="card stack"><h3>Pay online</h3>${PAY.balance
+      ? `<p style="margin:0">Pay ${money(total)} by card, Apple Pay or Google Pay on Stripe's secure page. Enter <b>${money(total)}</b> as the amount. Your reference is filled in for you.</p>
+        <div><a class="btn primary" href="${esc(payLink(PAY.balance, u, refAll))}" target="_blank" rel="noopener">Pay ${money(total)} securely ↗</a></div>
+        <p class="small muted" style="margin:0">Payments show here as paid once the front desk matches them, usually within one business day.</p>`
+      : `<div class="notice">Online card payment isn't switched on yet. Please pay at the front desk for now.</div>`}</div>
+    <div class="card stack"><h3>Pay at the front desk</h3><p style="margin:0">Cash or card. Show this screen or give your username.</p>
+      <dl class="kv"><dt>Username</dt><dd><b>${esc(u.username)}</b></dd><dt>References</dt><dd>${esc(dues.map(d => d.ref).join(', '))}</dd><dt>Amount</dt><dd><b>${money(total)}</b></dd></dl></div>`;
+  }
+  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Drop-in', refund: 'Refund', adjustment: 'Adjustment' };
+  out += `<div class="card stack"><h3>Payment history</h3>${tx.length ? `<div class="tbl"><table><tr><th>Date</th><th>Description</th><th>Method</th><th class="num">Amount</th></tr>
+    ${tx.map(t => `<tr><td class="small">${fmtD(t.at.slice(0, 10))}</td><td>${esc(t.desc)}</td><td class="small">${t.method === 'card' ? 'Card' : 'Front desk'}</td><td class="num" style="color:${t.amount < 0 ? 'var(--danger)' : 'inherit'}">${money(t.amount)}</td></tr>`).join('')}</table></div>
+    <p class="small muted" style="margin:0">Need a receipt for your records? This list is your receipt; ask the front desk for a printed copy.</p>` : '<p class="muted" style="margin:0">No payments yet.</p>'}</div>`;
+  return out + `</section>`;
+}
+function custPolicies() {
+  const sec = (h, items) => `<div class="card stack"><h3>${h}</h3><ul style="margin:0;padding-left:20px;line-height:1.6">${items.map(i => `<li>${i}</li>`).join('')}</ul></div>`;
+  return `<section class="stack narrow"><h2>Policies</h2>
+    <div class="notice">Draft for the owner to review before the site goes live. These are not yet StackLab's final terms.</div>
+    ${sec('Booking and payment', ['Court rentals are for approved customers. Classes and open gym are open to anyone with an account.', 'Bookings are confirmed when you check out. Payment is due before you play, online or at the front desk.', 'Prices shown at checkout include everything StackLab charges. Card payments are processed by Stripe; StackLab never stores card numbers.'])}
+    ${sec('Cancellations and refunds', ['<b>Court rentals:</b> cancel online at least 24 hours before your start time for a full refund. Inside 24 hours, the full price is due.', '<b>Classes:</b> full refund if you cancel before the first session. After the first session, no refund unless StackLab cancels the class.', '<b>Open-gym membership:</b> cancel anytime. Access continues to the end of the month you paid for; no partial-month refunds.', '<b>Drop-in passes:</b> refundable or movable to another day if you ask before that day.', 'If StackLab cancels anything (weather, maintenance, emergency), you get a full refund or a free reschedule.', 'Refunds go back to the original payment method within 5–10 business days.'])}
+    ${sec('Gym rules', ['Clean, non-marking basketball shoes only.', 'No food, gum or drinks except water on the courts.', 'Players under 14 need an adult in the building.', 'Stay on the half or court you booked, and end on time.', 'Renters pay for damage they or their group cause.'])}
+    ${sec('Liability waiver', ['Basketball has risks, including sprains, broken bones and other injuries. You take part voluntarily and accept those risks.', 'You release StackLab Tomball and its owners and staff from claims for injuries that happen during normal play, except those caused by gross negligence.', 'You confirm you are physically able to play. A parent or guardian signing up a child agrees to this for the child.', 'StackLab may take photos in the gym; ask the front desk if you do not want to be photographed.'])}
+    ${sec('Privacy', ['We collect your name, email, phone and booking history to run your bookings and contact you about them.', 'We do not sell your information. Payment details stay with Stripe.', 'Ask the front desk to update or delete your account at any time.'])}
+    <div><button class="btn" data-act="tab" data-val="classes">Back to booking</button></div></section>`;
+}
 function custMine() {
   const u = me();
   if (!u) return needLogin('see your account', 'account');
@@ -619,14 +683,22 @@ function custMine() {
     : `<span class="pill gray">Not approved for court rentals</span> <button class="btn sm" data-act="tab" data-val="book">Apply</button>`;
   let out = `<section class="card stack"><div class="row"><h2 style="flex:1">My account</h2><button class="btn sm" data-act="logout">Log out</button></div>
     <dl class="kv"><dt>Name</dt><dd>${esc(u.name)}</dd><dt>Username</dt><dd>${esc(u.username)}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Phone</dt><dd>${esc(u.phone || '—')}</dd><dt>Court rentals</dt><dd>${access}</dd></dl>`;
+  const owed = r2(myDues(u).reduce((x, d) => x + d.amt, 0)), pw = UI.pwc;
+  if (owed > 0) out += `<div class="notice row" style="justify-content:space-between"><span>You have ${money(owed)} due.</span><button class="btn sm primary" data-act="tab" data-val="pay">Pay now</button></div>`;
+  out += `<details${pw.err || pw.ok ? ' open' : ''}><summary class="small" style="cursor:pointer">Change password</summary><div class="stack" style="gap:8px;margin-top:8px;max-width:360px">
+    <label class="field"><span>Current or temporary password</span><input type="password" ${bind('UI.pwc.cur')} value="${esc(pw.cur)}" autocomplete="current-password"></label>
+    <label class="field"><span>New password (at least 8 characters)</span><input type="password" ${bind('UI.pwc.n1')} value="${esc(pw.n1)}" autocomplete="new-password"></label>
+    <label class="field"><span>Confirm new password</span><input type="password" ${bind('UI.pwc.n2')} value="${esc(pw.n2)}" autocomplete="new-password"></label>
+    ${pw.err ? `<div class="err">${esc(pw.err)}</div>` : ''}${pw.ok ? `<div class="flash">${esc(pw.ok)}</div>` : ''}
+    <div><button class="btn" data-act="changePw">Change password</button></div></div></details>`;
   const t = TODAY();
   const rs = S.reservations.filter(r => r.customer.email.toLowerCase() === e).sort((a, b) => (b.date + p4(b.start)).localeCompare(a.date + p4(a.start)));
   const gs = S.regs.filter(g => g.email.toLowerCase() === e);
   const ms = S.members.filter(m => m.email.toLowerCase() === e);
   const dd = S.dropins.filter(d => d.email.toLowerCase() === e);
   if (!rs.length && !gs.length && !ms.length && !dd.length) return out + `<p class="muted" style="margin:0">No bookings, classes or passes yet.</p></section>`;
-  const due = n => n > 0 ? `<br><span class="pill warn">${money(n)} due at desk</span>` : '';
-  if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Price</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.total)}${r.status === 'confirmed' ? due(r2(r.total - r.paid)) : ''}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : '<span class="pill ok">Confirmed</span>'}</td></tr>`).join('')}</table></div></div>`;
+  const due = n => n > 0 ? `<br><span class="pill warn">${money(n)} due</span>` : '';
+  if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Price</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.total)}${r.status === 'confirmed' ? due(r2(r.total - r.paid)) : ''}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : `<span class="pill ok">Confirmed</span><br>${canSelfCancel(r) ? askBtn('cc' + r.id, 'Cancel', 'custCancel', `data-id="${r.id}"`, 'btn sm') : '<span class="small muted">Within 24 hrs: call the desk to change</span>'}`}</td></tr>`).join('')}</table></div></div>`;
   if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}${g.status === 'active' ? due(g.due || 0) : ''}</p>`; }).join('')}</div>`;
   if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}${due(m.owed || 0)}</p>`).join('')}</div>`;
   if (dd.length) out += `<div><div class="lab">Drop-in passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}${due(d.due || 0)}</p>`).join('')}</div>`;
@@ -857,7 +929,7 @@ function ownerCustomers() {
     <div class="row"><h3 style="flex:1">All accounts (${S.users.length})</h3><input type="text" ${bind('UI.cq', true)} value="${esc(UI.cq || '')}" placeholder="Search name, username or email"></div>
     <div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>Username</th><th>Joined</th><th>Court rentals</th><th></th></tr>
     ${users.map(u => `<tr><td>${esc(u.name)}<br><span class="small muted">${esc(u.email)} · ${esc(u.phone || '')}</span></td><td>${esc(u.username)}</td><td>${fmtD(u.createdAt.slice(0, 10))}</td><td>${accPill(u)}</td>
-      <td>${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
+      <td><div class="row" style="gap:6px">${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}${askBtn('pw' + u.id, 'Reset password', 'resetPw', `data-id="${u.id}"`, 'btn sm')}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
     <p class="small muted" style="margin:0">Approved customers can book court time online. Everyone with an account can sign up for classes and open gym.</p></div>`;
 }
 function duesList() {
@@ -892,7 +964,7 @@ function ownerSettings() {
     <div class="tbl"><table>${DAYS.map((d, i) => { const h = S.hours[i];
       return `<tr><td><b>${d}</b></td><td><label class="check"><input type="checkbox" data-act="hoursToggle" data-i="${i}" ${h ? 'checked' : ''}> Open</label></td><td>${h ? `${timeSel(`S.hours.${i}.0`, 0, 1410)} to ${timeSel(`S.hours.${i}.1`, 30, 1440)}` : '<span class="muted">Closed</span>'}</td></tr>`; }).join('')}</table></div></div>
     <div class="card stack"><h3>Online payments</h3><p style="margin:0"><span class="pill warn">Not connected</span> Customers confirm at checkout and pay at the front desk. Record those payments under Payments → Waiting for payment.</p>
-      <p class="small muted" style="margin:0">Once a Stripe account is connected, the checkout page's card form switches on and memberships bill automatically.</p></div>
+      <p class="small muted" style="margin:0">To switch on card payments: open a free Stripe account (stripe.com), create a Payment Link set to "Customers choose what to pay" (and optionally a monthly membership link), and send both links to your site administrator. Checkout and the customer Payments page then send customers to Stripe. Stripe emails you each payment; match it to the customer's reference here and press Mark paid.</p></div>
     <div class="card stack"><h3>Owner login</h3><p class="small muted" style="margin:0">Logged in as <b>${OWNER.username}</b>. To change the owner password, ask your site administrator. It's set in the site code until the site has a shared database.</p><div><button class="btn" data-act="logout">Log out</button></div></div>
     <div class="card stack"><h3>Demo data</h3><p class="small muted" style="margin:0">Everything in this demo saves in your browser only. Reset to start over with the sample bookings.</p><div>${askBtn('reset', 'Reset demo data', 'reset')}</div></div></div>`;
 }
@@ -904,7 +976,8 @@ function render() {
   if (UI.view === 'owner' && !isOwner()) UI.view = 'ownerlogin';
   const cust = UI.view === 'customer', ologin = UI.view === 'ownerlogin', u = me();
   const pending = S.apps.filter(a => a.status === 'pending').length;
-  const ctabs = [['classes', 'Classes'], ['opengym', 'Open gym'], ['book', 'Rent a court'], ['account', u ? 'My account' : 'Log in']];
+  const nDue = u ? myDues(u).length : 0;
+  const ctabs = [['classes', 'Classes'], ['opengym', 'Open gym'], ['book', 'Rent a court'], ...(u ? [['pay', `Payments${nDue ? `<span class="badge">${nDue}</span>` : ''}`]] : []), ['account', u ? 'My account' : 'Log in']];
   const otabs = [['calendar', 'Calendar'], ['reservations', 'Reservations'], ['customers', `Customers${pending ? `<span class="badge">${pending}</span>` : ''}`], ['pricing', 'Pricing'], ['classes', 'Classes'], ['members', 'Memberships'], ['payments', 'Payments'], ['settings', 'Settings']];
   const tabs = ologin ? '' : (cust ? ctabs : otabs).map(([k, l]) => `<button data-act="tab" data-val="${k}" ${(cust ? UI.ctab : UI.otab) === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const who = ologin ? '' : cust
@@ -916,7 +989,8 @@ function render() {
   else if (cust) {
     if (UI.ctab === 'account' && !u) { UI.ctab = 'login'; UI.after = 'account'; }
     if (UI.ctab === 'checkout' && !u) UI.ctab = 'login';
-    body = { book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
+    if (UI.ctab === 'pay' && !u) { UI.ctab = 'login'; UI.after = 'pay'; }
+    body = (UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : '') + { pay: custPay, policies: custPolicies, book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
   } else {
     const main = { calendar: ownerCalendar, reservations: ownerReservations, customers: ownerCustomers, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
     const p = UI.panel;
@@ -927,7 +1001,7 @@ function render() {
       <span>Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.</span></div></div>
     <header class="top"><div class="wrap"><div class="brand"><h1><a href="/" style="color:inherit;text-decoration:none" title="StackLab home">StackLab Tomball</a></h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div>${who}<nav class="tabs" style="flex-basis:100%">${tabs}</nav></div></header>
     <main class="wrap">${body}
-      ${cust ? `<footer class="foot"><span><a href="/" style="color:inherit">← StackLab home</a> · 18618 FM 2920, Tomball, TX</span><button class="linkbtn" data-act="view" data-val="owner">Owner login</button></footer>` : ''}</main>`;
+      ${cust ? `<footer class="foot"><span><a href="/" style="color:inherit">← StackLab home</a> · 18618 FM 2920, Tomball, TX</span><span><button class="linkbtn" data-act="tab" data-val="policies">Policies &amp; waiver</button> · <button class="linkbtn" data-act="view" data-val="owner">Owner login</button></span></footer>` : ''}</main>`;
   bindCal();
   if (active) { const el = document.getElementById(active); if (el && el.focus) el.focus({ preventScroll: true }); }
 }
@@ -975,7 +1049,7 @@ function blockDates(d) {
 }
 const ACT = {
   noop() {}, view(a) { UI.view = a.dataset.val; UI.panel = null; UI.confirm = null; },
-  tab(a) { if (UI.view === 'customer') UI.ctab = a.dataset.val; else { UI.otab = a.dataset.val; UI.panel = null; } UI.confirm = null; window.scrollTo(0, 0); },
+  tab(a) { if (UI.view === 'customer') { UI.ctab = a.dataset.val; UI.flash = ''; } else { UI.otab = a.dataset.val; UI.panel = null; } UI.confirm = null; window.scrollTo(0, 0); },
   unflash() { UI.flash = ''; }, ask(a) { UI.confirm = a.dataset.key; }, unask() { UI.confirm = null; },
   togArr(a) { const p = a.dataset.path, v = 'num' in a.dataset ? +a.dataset.val : a.dataset.val, arr = [...(getPath(p) || [])]; const i = arr.indexOf(v); i >= 0 ? arr.splice(i, 1) : arr.push(v); setPath(p, arr); if (p.startsWith('S.')) save(); },
   setArr(a) { setPath(a.dataset.path, a.dataset.val.split(',')); },
@@ -1045,6 +1119,30 @@ const ACT = {
       o.done = `Drop-in pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
     }
     save(); window.scrollTo(0, 0);
+    if (UI.paym === 'online' && onlineReady(o.kind)) { const url = o.kind === 'mem' && PAY.membership ? PAY.membership : PAY.balance; window.open(payLink(url, u, `${u.username}: ${o.kind}`), '_blank', 'noopener'); }
+  },
+  paym(a) { UI.paym = a.dataset.val; },
+  changePw() {
+    const u = me(), f = UI.pwc; f.err = ''; f.ok = ''; if (!u) return;
+    if (hashPw(f.cur, u.salt) !== u.hash) return void (f.err = 'Your current password is not right.');
+    if ((f.n1 || '').length < 8) return void (f.err = 'Use a new password of at least 8 characters.');
+    if (f.n1 !== f.n2) return void (f.err = "The two new passwords don't match.");
+    u.salt = newSalt(); u.hash = hashPw(f.n1, u.salt); u.tempPw = false;
+    UI.pwc = blankPwc(); UI.pwc.ok = 'Password changed.'; save();
+  },
+  resetPw(a) {
+    const u = S.users.find(x => x.id === a.dataset.id), chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    const temp = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    u.salt = newSalt(); u.hash = hashPw(temp, u.salt); u.tempPw = true;
+    UI.flash = `Temporary password for ${u.name} (${u.username}): ${temp}. Give it to them in person or by phone; they can change it under My account.`; UI.confirm = null; save();
+  },
+  custCancel(a) {
+    const u = me(), r = find('reservations', a.dataset.id); UI.confirm = null;
+    if (!u || !r || r.customer.email.toLowerCase() !== u.email.toLowerCase() || !canSelfCancel(r)) return;
+    const refund = r.paid > 0 ? refundRef('res', r.id, r.paid, 'cancelled by customer') : 0;
+    r.status = 'cancelled'; r.cancel = { at: nowISO(), refund, keep: false, reason: 'Cancelled by customer online' };
+    notify(u.email, `Booking ${r.code} cancelled`, `${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)} is cancelled. ${refund ? 'Refund: ' + money(refund) + '.' : 'Nothing was charged.'}`);
+    UI.flash = `Cancelled ${r.code}.${refund ? ` ${money(refund)} will be refunded.` : ''}`; save();
   },
   // accounts
   goAuth(a) { UI.ctab = a.dataset.val; UI.after = a.dataset.after || UI.after || ''; UI.auth.err = ''; UI.auth.pw = ''; UI.auth.pw2 = ''; window.scrollTo(0, 0); },
@@ -1065,7 +1163,8 @@ const ACT = {
     if (S.users.some(x => x.email.toLowerCase() === email.toLowerCase())) return void (f.err = 'An account with that email already exists. Log in instead.');
     if ((f.pw || '').length < 8) return void (f.err = 'Use a password of at least 8 characters.');
     if (f.pw !== f.pw2) return void (f.err = "The two passwords don't match.");
-    const salt = newSalt(), u = { id: uid('u'), name, username: user, email, phone: f.phone.trim(), salt, hash: hashPw(f.pw, salt), createdAt: nowISO(), access: 'none' };
+    if (!f.agree) return void (f.err = 'Please agree to the policies and liability waiver.');
+    const salt = newSalt(), u = { id: uid('u'), name, username: user, email, phone: f.phone.trim(), salt, hash: hashPw(f.pw, salt), createdAt: nowISO(), access: 'none', waiverAt: nowISO() };
     S.users.push(u); SESSION = { kind: 'customer', userId: u.id }; saveSession();
     notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`);
     UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; save(); window.scrollTo(0, 0);
@@ -1258,7 +1357,7 @@ UI.cs.date = TODAY(); UI.oc.date = TODAY(); UI.og.date = TODAY();
 function routeHash() {
   const h = (location.hash || '').slice(1);
   if (h === 'owner') { UI.view = 'owner'; return; }
-  if (['classes', 'opengym', 'book', 'account', 'login', 'signup'].includes(h)) { UI.view = 'customer'; UI.ctab = h; }
+  if (['classes', 'opengym', 'book', 'account', 'login', 'signup', 'pay', 'policies'].includes(h)) { UI.view = 'customer'; UI.ctab = h; }
 }
 try { routeHash(); window.addEventListener('hashchange', () => { routeHash(); render(); window.scrollTo(0, 0); }); } catch (e) {}
 render();
