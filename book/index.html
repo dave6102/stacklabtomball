@@ -391,7 +391,7 @@ function saveSession() { if (LIVE) return; try { SESSION ? localStorage.setItem(
 const isOwner = () => !!SESSION && SESSION.kind === 'owner';
 const me = () => SESSION && SESSION.kind === 'customer' ? S.users.find(u => u.id === SESSION.userId) || null : null;
 const userByLogin = s => { s = (s || '').trim().toLowerCase(); return S.users.find(u => u.username.toLowerCase() === s || u.email.toLowerCase() === s); };
-const appOf = u => S.apps.filter(a => a.userId === u.id).sort((a, b) => b.at.localeCompare(a.at))[0] || null;
+const appOf = u => S.apps.filter(a => a.userId === u.id && a.type !== 'series').sort((a, b) => b.at.localeCompare(a.at))[0] || null;
 
 /* ===================== pricing ===================== */
 function ruleFor(date, m) {
@@ -569,7 +569,7 @@ function seedAccounts() {
 const UI = {
   view: 'customer', ctab: 'classes', otab: 'calendar', after: '', co: null, cq: '', dnote: {},
   auth: null, ap: null, olog: { user: '', pw: '', err: '' },
-  cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
+  cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, rep: false, weeks: 8, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
   cl: { open: null, name: '', email: '', phone: '', err: '', done: null },
   og: { which: null, name: '', email: '', date: '', err: '', done: null },
   my: { email: '' },
@@ -603,12 +603,33 @@ function askBtn(key, label, act, data = '', cls = 'btn danger') {
 }
 
 /* ===================== customer site ===================== */
-function candidates() {
-  const c = UI.cs;
-  if (c.mode === 'half') return RES.map(r => [r.id]);
-  if (c.mode === 'full') return [['C1N', 'C1S'], ['C2N', 'C2S']];
-  if (c.mode === 'gym') return [ALL];
-  return c.custom.length ? [sortRes(c.custom)] : [];
+function setsFor(mode, custom) {
+  if (mode === 'half') return RES.map(r => [r.id]);
+  if (mode === 'full') return [['C1N', 'C1S'], ['C2N', 'C2S']];
+  if (mode === 'gym') return [ALL];
+  return custom && custom.length ? [sortRes(custom)] : [];
+}
+function candidates() { return setsFor(UI.cs.mode, UI.cs.custom); }
+// Weekly series: the same weekday and time for n weeks starting on `date`.
+// Each week gets the first open court set for the chosen space, or a reason it can't be booked.
+function seriesPlan(o) {
+  const out = [], end = o.start + o.dur, sets = setsFor(o.mode, o.custom), t = TODAY();
+  for (let i = 0; i < o.weeks; i++) {
+    const date = addDays(o.date, 7 * i), h = hoursOf(date);
+    let set = null, why = '';
+    if (date < t || (date === t && o.start <= nowMin())) why = 'Past';
+    else if (!h || o.start < h[0] || end > h[1]) why = 'Gym closed';
+    else { set = sets.find(x => !conflict(date, x, o.start, end)) || null; if (!set) why = 'Taken'; }
+    out.push({ date, set, why, q: set ? quote(date, set, o.start, end) : null });
+  }
+  return out;
+}
+const spaceName = (mode, custom) => ({ half: 'Half court', full: 'Full court', gym: 'Entire gym' }[mode] || resLabel(sortRes(custom || [])));
+const seriesLabel = q => `${fmtD(q.date, { weekday: 'long' })}s ${fmtT(q.start)}–${fmtT(q.end)} · ${spaceName(q.mode, q.custom)} · ${q.weeks} weeks from ${fmtD(q.date, { month: 'short', day: 'numeric' })}`;
+const seriesPlanOf = q => seriesPlan({ date: q.date, weeks: q.weeks, start: q.start, dur: q.end - q.start, mode: q.mode, custom: q.custom });
+function planTable(plan) {
+  return `<div class="tbl"><table><tr><th>Week</th><th>Date</th><th>Space</th><th class="num">Price</th></tr>${plan.map((w, i) => `<tr${w.set ? '' : ' style="opacity:.6"'}><td>${i + 1}</td><td>${fmtD(w.date)}</td><td>${w.set ? resLabel(w.set) : `<span class="pill bad">${w.why}</span>`}</td><td class="num">${w.set ? money(w.q.total) : '—'}</td></tr>`).join('')}
+    <tr><td colspan="3"><b>${plan.filter(w => w.set).length} of ${plan.length} weeks open</b></td><td class="num"><b>${money(plan.reduce((a, w) => a + (w.set ? w.q.total : 0), 0))}</b></td></tr></table></div>`;
 }
 function startOptions(date, dur) {
   const h = hoursOf(date); if (!h) return [];
@@ -707,6 +728,10 @@ function custBook() {
   const days = Array.from({ length: 14 }, (_, i) => addDays(TODAY(), i));
   let durOpts = ''; for (let m = 30; m <= Math.max(maxDur, 30); m += 30) durOpts += `<option value="${m}"${m === c.dur ? ' selected' : ''}>${fmtDur(m)}</option>`;
   const modeBtn = (m, l) => `<button data-act="cmode" data-val="${m}" ${pressed(c.mode === m)}>${l}</button>`;
+  const sent = UI.seriesSent && S.apps.find(x => x.id === UI.seriesSent);
+  if (sent) return `<section class="card done stack narrow"><h2>Request sent</h2><p style="margin:0">${esc(seriesLabel(sent))}</p>
+    <p class="small" style="margin:0">The owner reviews weekly bookings and you'll see the result under My account. Nothing is booked until it's approved.</p>
+    <div class="row"><button class="btn primary" data-act="seriesDone" data-val="account">My account</button><button class="btn" data-act="seriesDone" data-val="book">Book something else</button></div></section>`;
   let html = `<section class="card stack"><h2>Book a court</h2>
     <div><div class="lab">1 · Space</div><div class="seg">${modeBtn('half', 'Half court')}${modeBtn('full', 'Full court')}${modeBtn('gym', 'Entire gym')}${modeBtn('custom', 'Choose halves')}</div>
     ${c.mode === 'custom' ? `<p class="small muted">Tap the halves you want. Pick any combination.</p><div class="courts">${[1, 2].map(n => `<div><div class="lab" style="text-align:center">Court ${n}</div><div class="court">${['N', 'S'].map(s => { const id = `C${n}${s}`; return `<button data-act="cpick" data-val="${id}" ${pressed(c.custom.includes(id))}>${s === 'N' ? 'North' : 'South'}</button>`; }).join('')}</div></div>`).join('')}</div>`
@@ -726,7 +751,15 @@ function custBook() {
     html += `<div class="card stack" style="background:var(--bg)"><h3>Your selection</h3>
       <dl class="kv"><dt>Space</dt><dd>${resLabel(set)}</dd><dt>Date</dt><dd>${fmtD(c.date, { weekday: 'long', month: 'long', day: 'numeric' })}</dd><dt>Time</dt><dd>${fmtT(c.start)} – ${fmtT(c.start + c.dur)}</dd></dl>
       ${linesHTML(q.lines, q.total)}
-      <div><button class="btn primary" data-act="coBook">Continue to checkout</button></div></div>`;
+      <div><div class="lab">How often</div><div class="seg"><button data-act="crep" data-val="0" ${pressed(!c.rep)}>Just this once</button><button data-act="crep" data-val="1" ${pressed(c.rep)}>Repeat weekly</button></div></div>
+      ${c.rep ? (() => { const plan = seriesPlan({ date: c.date, weeks: c.weeks, start: c.start, dur: c.dur, mode: c.mode, custom: c.custom });
+        let wk = ''; for (let n = 2; n <= 26; n++) wk += `<option value="${n}"${n === c.weeks ? ' selected' : ''}>${n} weeks</option>`;
+        return `<p style="margin:0">Every <b>${fmtD(c.date, { weekday: 'long' })}</b>, ${fmtT(c.start)} – ${fmtT(c.start + c.dur)}, for <select ${bind('UI.cs.weeks', true)} data-num>${wk}</select></p>
+        ${planTable(plan)}
+        <p class="small muted" style="margin:0">Weekly bookings need the owner's OK; you'll see the result under My account. Weeks that are taken or closed are skipped. Pay at the front desk, per session or all at once.</p>
+        ${c.err ? `<div class="err">${esc(c.err)}</div>` : ''}
+        <div><button class="btn primary" data-act="reqSeries">Send weekly booking request</button></div>`; })()
+      : `<div><button class="btn primary" data-act="coBook">Continue to checkout</button></div>`}</div>`;
   }
   return html + `</section>`;
 }
@@ -837,6 +870,8 @@ function custMine() {
   const dd = S.dropins.filter(d => d.email.toLowerCase() === e);
   if (!rs.length && !gs.length && !ms.length && !dd.length) return out + `<p class="muted" style="margin:0">No bookings, classes or passes yet.</p></section>`;
   const due = n => n > 0 ? `<br><span class="pill warn">${money(n)} due</span>` : '';
+  const sq = S.apps.filter(x => x.type === 'series' && x.userId === u.id).sort((a, b) => b.at.localeCompare(a.at));
+  if (sq.length) out += `<div><div class="lab">Weekly booking requests</div>${sq.map(q => `<p style="margin:4px 0">${esc(seriesLabel(q))} ${q.status === 'approved' ? `<span class="pill ok">Approved${q.booked ? ' · ' + q.booked.length + ' sessions booked' : ''}</span>` : q.status === 'declined' ? `<span class="pill bad">Not approved</span>${q.ownerNote ? ' <span class="small muted">“' + esc(q.ownerNote) + '”</span>' : ''}` : '<span class="pill warn">Waiting for approval</span>'}</p>`).join('')}</div>`;
   if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Price</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.total)}${r.status === 'confirmed' ? due(r2(r.total - r.paid)) : ''}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : `<span class="pill ok">Confirmed</span><br>${canSelfCancel(r) ? askBtn('cc' + r.id, 'Cancel', 'custCancel', `data-id="${r.id}"`, 'btn sm') : '<span class="small muted">Within 24 hrs: call the desk to change</span>'}`}</td></tr>`).join('')}</table></div></div>`;
   if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}${g.status === 'active' ? due(g.due || 0) : ''}</p>`; }).join('')}</div>`;
   if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}${due(m.owed || 0)}</p>`).join('')}</div>`;
@@ -1053,12 +1088,20 @@ function ownerLogin() {
     <div class="row"><button class="btn primary" data-act="doOwnerLogin">Log in</button><button class="btn" data-act="view" data-val="customer">Back to website</button></div></section>`;
 }
 function ownerCustomers() {
-  const pend = S.apps.filter(a => a.status === 'pending').sort((a, b) => a.at.localeCompare(b.at));
+  const pend = S.apps.filter(a => a.status === 'pending' && a.type !== 'series').sort((a, b) => a.at.localeCompare(b.at));
+  const sreq = S.apps.filter(a => a.status === 'pending' && a.type === 'series').sort((a, b) => a.at.localeCompare(b.at));
   const uOf = id => S.users.find(u => u.id === id);
   const accPill = u => u.access === 'approved' ? '<span class="pill ok">Approved</span>' : u.access === 'pending' ? '<span class="pill warn">Pending</span>' : u.access === 'declined' ? '<span class="pill bad">Declined</span>' : '<span class="pill gray">Not applied</span>';
   const q = (UI.cq || '').toLowerCase();
   const users = S.users.filter(u => !q || (u.name + ' ' + u.username + ' ' + u.email).toLowerCase().includes(q)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return `<div class="stack"><h2>Customers</h2>
+    <h3>Weekly booking requests ${sreq.length ? `<span class="badge">${sreq.length}</span>` : ''}</h3>
+    ${sreq.length ? `<div class="stack">${sreq.map(q => { const u = uOf(q.userId) || q; const plan = seriesPlanOf(q); const open = plan.filter(w => w.set).length;
+      return `<div class="card stack"><div><h3>${esc(u.name)}</h3><p class="small muted" style="margin:2px 0 0">${esc(u.email)} · ${esc(u.phone || '')} · requested ${fmtD(q.at.slice(0, 10))}</p></div>
+      <p style="margin:0"><b>${esc(seriesLabel(q))}</b></p>${planTable(plan)}
+      <label class="field"><span>Note to customer (optional, sent if declined)</span><input type="text" ${bind(`UI.dnote.${q.id}`)} value="${esc((UI.dnote || {})[q.id] || '')}"></label>
+      <div class="row"><button class="btn primary" data-act="approveSeries" data-id="${q.id}" ${open ? '' : 'disabled'}>Approve and book ${open} week${open === 1 ? '' : 's'}</button>${askBtn('dsr' + q.id, 'Decline', 'declineSeries', `data-id="${q.id}"`)}</div></div>`; }).join('')}</div>`
+      : '<p class="muted" style="margin:0">No weekly requests waiting.</p>'}
     <h3>Court-rental applications ${pend.length ? `<span class="badge">${pend.length}</span>` : ''}</h3>
     ${pend.length ? `<div class="grid2">${pend.map(a => { const u = uOf(a.userId); return `<div class="card stack"><div><h3>${esc(u.name)}</h3><p class="small muted" style="margin:2px 0 0">${esc(u.email)} · ${esc(u.phone || '')} · applied ${fmtD(a.at.slice(0, 10))}</p></div>
       <dl class="kv"><dt>Use</dt><dd>${esc(a.use)}</dd>${a.org ? `<dt>Group</dt><dd>${esc(a.org)}</dd>` : ''}<dt>Size</dt><dd>${esc(a.size || '—')}</dd><dt>When</dt><dd>${esc(a.when || '—')}</dd>${a.notes ? `<dt>Notes</dt><dd>${esc(a.notes)}</dd>` : ''}</dl>
@@ -1196,6 +1239,40 @@ const ACT = {
   setArr(a) { setPath(a.dataset.path, a.dataset.val.split(',')); },
   setv(a) { setPath(a.dataset.path, a.dataset.val); },
   // customer
+  crep(a) { UI.cs.rep = a.dataset.val === '1'; UI.cs.err = ''; },
+  seriesDone(a) { UI.seriesSent = ''; UI.ctab = a.dataset.val; window.scrollTo(0, 0); },
+  reqSeries() {
+    const c = UI.cs, u = me(); c.err = '';
+    if (!u || u.access !== 'approved' || c.start == null) return;
+    const plan = seriesPlan({ date: c.date, weeks: c.weeks, start: c.start, dur: c.dur, mode: c.mode, custom: c.custom });
+    const open = plan.filter(w => w.set);
+    if (!open.length) return void (c.err = 'None of those weeks are open. Try another time.');
+    const q = { id: uid('a'), type: 'series', userId: u.id, at: nowISO(), status: 'pending', decidedAt: '', ownerNote: '', name: u.name, email: u.email, phone: u.phone || '',
+      mode: c.mode, custom: [...c.custom], date: c.date, weeks: c.weeks, start: c.start, end: c.start + c.dur,
+      estimate: r2(open.reduce((x, w) => x + w.q.total, 0)), openWeeks: open.length };
+    S.apps.push(q);
+    notify(u.email, 'Weekly booking request received', `${seriesLabel(q)}. The owner will review it; nothing is booked until it's approved.`);
+    UI.seriesSent = q.id; c.start = null; c.rep = false; window.scrollTo(0, 0);
+    return save().then(err => { if (err) UI.seriesSent = ''; });
+  },
+  approveSeries(a) {
+    const q = find('apps', a.dataset.id), u = S.users.find(x => x.id === q.userId) || q;
+    const booked = []; let tot = 0;
+    for (const w of seriesPlanOf(q)) {
+      if (!w.set) continue;
+      const r = createReservation({ date: w.date, resources: w.set, start: q.start, end: q.end, customer: { name: u.name, email: u.email, phone: u.phone || '' }, total: w.q.total, lines: w.q.lines, method: 'unpaid', by: 'owner', note: 'Weekly booking' });
+      r.userId = q.userId; r.seriesId = q.id; booked.push(w.date); tot += r.total;
+    }
+    q.status = 'approved'; q.decidedAt = nowISO(); q.booked = booked;
+    notify(u.email, 'Your weekly booking is approved', `${seriesLabel(q)}: ${booked.length} sessions booked, ${money(tot)} total, pay at the front desk.`);
+    UI.flash = `Approved ${u.name}'s weekly booking: ${booked.length} of ${q.weeks} weeks booked (${money(tot)}).`; save();
+  },
+  declineSeries(a) {
+    const q = find('apps', a.dataset.id), u = S.users.find(x => x.id === q.userId) || q, note = ((UI.dnote || {})[q.id] || '').trim();
+    q.status = 'declined'; q.decidedAt = nowISO(); q.ownerNote = note;
+    notify(u.email, 'About your weekly booking request', `We can't approve ${seriesLabel(q)} right now.${note ? ' ' + note : ''} You can still book single times online.`);
+    UI.flash = `Declined ${u.name}'s weekly booking request.`; UI.confirm = null; save();
+  },
   cmode(a) { UI.cs.mode = a.dataset.val; UI.cs.start = null; }, cpick(a) { ACT.togArr({ dataset: { path: 'UI.cs.custom', val: a.dataset.val } }); UI.cs.start = null; },
   cdate(a) { UI.cs.date = a.dataset.val; UI.cs.start = null; }, cstart(a) { UI.cs.start = +a.dataset.val; UI.cs.err = ''; },
   // checkout: build the order, then place it unpaid (pay at the desk until card payments are connected)
@@ -1409,7 +1486,7 @@ const ACT = {
   },
   grant(a) {
     const u = S.users.find(x => x.id === a.dataset.id); u.access = 'approved';
-    S.apps.filter(x => x.userId === u.id && x.status === 'pending').forEach(x => { x.status = 'approved'; x.decidedAt = nowISO(); });
+    S.apps.filter(x => x.userId === u.id && x.status === 'pending' && x.type !== 'series').forEach(x => { x.status = 'approved'; x.decidedAt = nowISO(); });
     notify(u.email, 'You are approved to rent courts', 'Your StackLab Tomball account can now book court time online.');
     UI.flash = `Approved ${u.name}.`; save();
   },
