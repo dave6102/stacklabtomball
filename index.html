@@ -2,101 +2,82 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>STACKLAB TOMBALL | Basketball. Built Here.</title>
 <meta name="description" content="StackLab Tomball — basketball court rentals, training, and open gym at 18618 FM 2920 in Tomball, Texas.">
 <style>
-:root{--bg:#090909;--panel:#141414;--white:#f6f6f3;--muted:#aaa;--lime:#d6ff38;--line:#303030}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--white);font-family:Arial,Helvetica,sans-serif}
-a{color:inherit;text-decoration:none}.wrap{width:min(1160px,90%);margin:auto}
-header{position:absolute;z-index:5;top:0;left:0;width:100%;border-bottom:1px solid #ffffff26}
-.nav{height:84px;display:flex;align-items:center;justify-content:space-between;gap:24px}
-.brand{font-size:25px;font-weight:950;letter-spacing:2px}.brand span{color:var(--lime)}
-nav{display:flex;gap:27px;font-size:12px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase}
-.navright{display:flex;align-items:center;gap:18px}
+:root{--bg:#090909;--panel:#141414e6;--white:#f6f6f3;--muted:#b4b4b4;--lime:#d6ff38;--line:#ffffff26}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;min-height:100vh;min-height:100dvh;display:grid;grid-template-rows:auto 1fr auto;overflow-x:hidden;color:var(--white);font-family:Arial,Helvetica,sans-serif;
+  background:linear-gradient(90deg,#050505 0%,#050505f0 45%,#05050580 100%),url('https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=2000&q=80') center/cover fixed,var(--bg)}
+a{color:inherit;text-decoration:none}
+.wrap{width:min(1200px,100% - 32px);margin:0 auto}
+header{border-bottom:1px solid var(--line)}
+.nav{height:clamp(56px,9vh,80px);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{font-size:clamp(20px,2.4vw,25px);font-weight:900;letter-spacing:2px;white-space:nowrap}.brand span{color:var(--lime)}
+.navright{display:flex;align-items:center;gap:clamp(12px,2vw,22px)}
 .login{font-size:12px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase}
-.navcta,.btn{display:inline-block;background:var(--lime);color:#090909;padding:15px 21px;font-size:12px;font-weight:900;letter-spacing:1.1px;text-transform:uppercase}
-.hero{min-height:740px;display:flex;align-items:center;position:relative;overflow:hidden;background:linear-gradient(90deg,#050505 0%,#050505eF 42%,#05050555 100%),linear-gradient(0deg,#090909 0%,transparent 40%),url('https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=2000&q=85') center/cover}
-.hero:after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 55%,#d6ff3810 55.2%,transparent 56%);pointer-events:none}
-.hero-content{position:relative;z-index:1;padding-top:95px;max-width:760px}
+.btn{display:inline-block;background:var(--lime);color:#090909;padding:clamp(10px,1.6vh,15px) clamp(14px,1.6vw,21px);font-size:12px;font-weight:900;letter-spacing:1.1px;text-transform:uppercase;white-space:nowrap}
+.btn.secondary{background:transparent;border:1px solid #aaa;color:#fff}
+main{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(24px,4vw,64px);align-items:center;padding-block:clamp(12px,3vh,40px)}
 .eyebrow{color:var(--lime);font-size:12px;font-weight:900;letter-spacing:3px;text-transform:uppercase}
-h1{font-size:clamp(64px,10vw,126px);line-height:.86;letter-spacing:-6px;margin:24px 0 22px;font-weight:1000}
-h1 span{color:var(--lime)}.hero p{max-width:490px;color:#d0d0d0;font-size:18px;line-height:1.65}
-.actions{display:flex;gap:13px;flex-wrap:wrap;margin-top:30px}.btn.secondary{background:transparent;border:1px solid #aaa;color:white}
-.location{margin-top:38px;color:#aaa;font-size:12px;letter-spacing:1.5px;text-transform:uppercase}
-section{padding:95px 0}.section-top{display:flex;justify-content:space-between;align-items:end;gap:30px;margin-bottom:38px}
-h2{font-size:clamp(36px,5vw,58px);letter-spacing:-2px;line-height:.98;margin:12px 0}
-.section-top p{max-width:420px;color:var(--muted);line-height:1.65;margin:0}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.card{background:var(--panel);border:1px solid var(--line);min-height:275px;padding:29px;display:flex;flex-direction:column;justify-content:space-between}
-.card .num{color:var(--lime);font-weight:900;font-size:12px;letter-spacing:2px}
-.card h3{font-size:27px;margin:0 0 10px;letter-spacing:-.7px}.card p{color:var(--muted);line-height:1.6;margin:0}
-.arrow{color:var(--lime);font-size:22px;font-weight:bold}
-.band{background:var(--lime);color:#090909;padding:70px 0}
-.bandinner{display:flex;justify-content:space-between;align-items:center;gap:30px}
-.band h2{max-width:700px;margin:0}.band .btn{background:#090909;color:white;white-space:nowrap}
-.courts{display:grid;grid-template-columns:1.05fr .95fr;gap:55px;align-items:center}
-.court-photo{min-height:430px;background:linear-gradient(0deg,#0007,#0000),url('https://images.unsplash.com/photo-1504450758481-7338eba7524a?auto=format&fit=crop&w=1200&q=85') center/cover}
-.checks{list-style:none;padding:0;margin:28px 0}.checks li{padding:14px 0;border-bottom:1px solid var(--line);color:#ddd}.checks li:before{content:"＋";color:var(--lime);font-weight:bold;margin-right:12px}
-.note{font-size:12px;color:#888;line-height:1.6}
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px}
-.step{border-top:2px solid var(--lime);padding-top:14px;color:#ccc;line-height:1.6;font-size:15px}.step b{display:block;color:white;margin-bottom:6px}
-footer{border-top:1px solid var(--line);padding:35px 0;color:#999;font-size:12px}
-.footerinner{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
-footer a{text-decoration:underline}
-@media(max-width:760px){nav{display:none}.nav{height:72px}.navcta{padding:12px 14px}.hero{min-height:680px;background-position:58% center}.hero-content{padding-top:80px}h1{letter-spacing:-3px}.section-top,.bandinner,.courts{display:block}.section-top p{margin-top:18px}.grid,.steps{grid-template-columns:1fr}.band .btn{margin-top:25px}.court-photo{min-height:280px;margin-bottom:30px}section{padding:70px 0}}
+h1{font-size:clamp(40px,min(8.6vw,13vh),124px);line-height:.86;letter-spacing:-.05em;margin:clamp(10px,2vh,22px) 0 clamp(10px,2vh,20px);font-weight:900}
+h1 span{color:var(--lime)}
+.lead{max-width:470px;color:#d0d0d0;font-size:clamp(15px,2.1vh,18px);line-height:1.55;margin:0}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:clamp(14px,3vh,28px)}
+.tiles{display:grid;gap:clamp(8px,1.6vh,14px)}
+.tile{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 16px;background:var(--panel);border:1px solid #303030;padding:clamp(12px,2.4vh,24px) clamp(14px,2vw,24px);transition:border-color .15s}
+.tile:hover,.tile:focus-visible{border-color:var(--lime)}
+.tile .num{grid-column:1/-1;color:var(--lime);font-weight:900;font-size:11px;letter-spacing:2px}
+.tile h2{font-size:clamp(18px,2.8vh,25px);letter-spacing:-.5px;margin:0}
+.tile p{grid-column:1;color:var(--muted);font-size:14px;line-height:1.45;margin:0}
+.tile .arrow{grid-column:2;grid-row:2/4;color:var(--lime);font-size:24px;font-weight:bold}
+footer{border-top:1px solid var(--line);padding-block:clamp(10px,2vh,18px);color:#aaa;font-size:12px}
+.footerinner{display:flex;justify-content:space-between;align-items:center;gap:6px 18px;flex-wrap:wrap}
+footer a{text-decoration:underline;text-underline-offset:2px}
+footer strong{color:#fff;letter-spacing:2px}
+@media (max-width:760px){
+  body{background-attachment:scroll;background-position:62% center}
+  .login{font-size:11px;letter-spacing:1px}
+  main{grid-template-columns:1fr;align-content:center;gap:clamp(12px,2.4vh,22px);padding-block:clamp(8px,2vh,20px)}
+  .eyebrow{font-size:11px;letter-spacing:2px}
+  h1{font-size:clamp(36px,min(14vw,7.6vh),70px);letter-spacing:-.04em;margin:clamp(8px,1.4vh,14px) 0}
+  .lead{font-size:14px;line-height:1.45}
+  .actions{margin-top:clamp(10px,2vh,18px);gap:8px}
+  .actions .btn{flex:1;text-align:center;padding:12px 10px}
+  .tiles{gap:8px}
+  .tile{padding:clamp(10px,1.7vh,16px) 14px;gap:2px 12px}
+  .tile .num,.tile p{display:none}
+  .tile h2{font-size:18px}
+  .tile .arrow{grid-row:1;font-size:20px}
+  footer{font-size:11px;padding-block:10px}
+  .footerinner{justify-content:center;text-align:center;gap:2px 12px}
+  .hide-sm{display:none}
+}
+@media (max-height:620px) and (min-width:761px){.tile p{display:none}}
 </style>
 </head>
 <body>
 <header><div class="wrap nav">
   <a class="brand" href="/">STACK<span>LAB</span></a>
-  <nav><a href="#rentals">Court Rentals</a><a href="#training">Classes</a><a href="#open-gym">Open Gym</a><a href="#location">Location</a></nav>
-  <div class="navright"><a class="login" href="/book/#account">Log in</a><a class="navcta" href="/book/#classes">Book Now</a></div>
+  <div class="navright"><a class="login" href="/book/#account">Log in</a><a class="btn" href="/book/#classes">Book Now</a></div>
 </div></header>
-<main>
-<section class="hero">
-  <div class="wrap hero-content">
+<main class="wrap">
+  <div>
     <div class="eyebrow">Tomball, Texas · Two full courts</div>
     <h1>BUILT<br>FOR THE<br><span>GAME.</span></h1>
-    <p>Your place to get better, get reps, and get on the court. StackLab brings basketball court rentals, training, and open-gym energy together under one roof.</p>
+    <p class="lead">Court rentals, training and open gym under one roof. Get better, get reps, get on the court.</p>
     <div class="actions"><a class="btn" href="/book/#book">Rent a Court ↗</a><a class="btn secondary" href="/book/#classes">Sign Up for Classes</a></div>
-    <div class="location">18618 FM 2920 · Tomball, TX</div>
   </div>
-</section>
-<section id="rentals"><div class="wrap">
-  <div class="section-top"><div><div class="eyebrow">Make your next move</div><h2>FIND YOUR<br>COURT TIME.</h2></div><p>Whether you're getting shots up, running a workout, or bringing your team together, StackLab gives you room to work.</p></div>
-  <div class="grid">
-    <article class="card"><div class="num">01 / RENTALS</div><div><h3>Half-Court Rentals</h3><p>Reserve space for individual workouts, small groups, and skill sessions.</p></div><a class="arrow" href="/book/#book">See open times ↗</a></article>
-    <article class="card"><div class="num">02 / RENTALS</div><div><h3>Full-Court Rentals</h3><p>Get the full floor for team practices, scrimmages, and organized play.</p></div><a class="arrow" href="/book/#book">See open times ↗</a></article>
-    <article class="card"><div class="num">03 / GROUPS</div><div><h3>Team & Gym Events</h3><p>Bring your group together for basketball, competition, and community.</p></div><a class="arrow" href="#contact">Plan your visit ↗</a></article>
-  </div>
-  <div class="steps">
-    <div class="step"><b>1. Create a free account</b>Takes a minute. You can sign up for classes and open gym right away.</div>
-    <div class="step"><b>2. Apply to rent courts</b>Tell us about your group. The owner reviews every rental application.</div>
-    <div class="step"><b>3. Book online once approved</b>Pick a court and a time and check out. Pay at the front desk for now.</div>
-  </div>
-  <div class="actions"><a class="btn" href="/book/#signup">Create an Account ↗</a></div>
-</div></section>
-<div class="band"><div class="wrap bandinner"><h2>MORE REPS.<br>MORE CONFIDENCE.<br>MORE GAME.</h2><a class="btn" href="/book/#classes">See Classes ↗</a></div></div>
-<section id="training"><div class="wrap courts">
-  <div class="court-photo" role="img" aria-label="Indoor basketball court"></div>
-  <div><div class="eyebrow">Put in the work</div><h2>YOUR GAME.<br>YOUR NEXT LEVEL.</h2><p style="color:#aaa;line-height:1.7">From focused skill work to group sessions, StackLab is built for players who want to keep improving. See the current class schedule and sign up online.</p>
-  <ul class="checks"><li>Basketball skill development</li><li>Group training opportunities</li><li>Space to practice and compete</li></ul>
-  <a class="btn" href="/book/#classes">See Classes &amp; Sign Up ↗</a></div>
-</div></section>
-<section id="open-gym" style="background:#111"><div class="wrap">
-  <div class="section-top"><div><div class="eyebrow">Get on the floor</div><h2>OPEN GYM.<br>REAL RUNS.</h2></div><p>Looking for a place to get shots up and play? Grab a drop-in pass for a day or a monthly open-gym membership.</p></div>
-  <a class="btn secondary" href="/book/#opengym">Get an Open-Gym Pass ↗</a>
-</div></section>
-<section id="location"><div class="wrap">
-  <div class="eyebrow">Come through</div><h2>YOUR COURT<br>IS IN TOMBALL.</h2>
-  <p style="color:#aaa;line-height:1.7">STACKLAB TOMBALL<br>18618 FM 2920<br>Tomball, Texas</p>
-  <a class="btn" href="https://www.google.com/maps/search/?api=1&query=18618+FM+2920+Tomball+Texas" target="_blank" rel="noopener">Get Directions ↗</a>
-</div></section>
-<section id="contact" style="padding-top:20px"><div class="wrap" style="border:1px solid var(--line);padding:35px">
-  <div class="eyebrow">Let's get you on the court</div><h2>HAVE A QUESTION?</h2><p style="color:#aaa;line-height:1.7">Contact StackLab for court rental questions, training information, open-gym details, and group bookings.</p>
-  <p class="note">Contact email and phone number will be added here once provided.</p>
-</div></section>
+  <nav class="tiles" aria-label="What you can book">
+    <a class="tile" href="/book/#book"><span class="num">01 / RENTALS</span><h2>Court Rentals</h2><p>Half court, full court or the whole gym. Apply once, then book online.</p><span class="arrow">↗</span></a>
+    <a class="tile" href="/book/#classes"><span class="num">02 / TRAINING</span><h2>Classes</h2><p>Skill training and clinics for players of every level.</p><span class="arrow">↗</span></a>
+    <a class="tile" href="/book/#opengym"><span class="num">03 / OPEN GYM</span><h2>Open Gym</h2><p>Drop in for a day or join monthly. Real runs.</p><span class="arrow">↗</span></a>
+  </nav>
 </main>
-<footer><div class="wrap footerinner"><div><strong style="color:white;letter-spacing:2px">STACKLAB TOMBALL</strong><br>Basketball. Built Here.</div><div>18618 FM 2920 · Tomball, TX</div><div>© 2026 StackLab Tomball · <a href="/book/#policies">Policies &amp; waiver</a> · <a href="/book/#owner">Owner login</a></div></div></footer>
+<footer><div class="wrap footerinner">
+  <div><strong class="hide-sm">STACKLAB TOMBALL</strong><span class="hide-sm"> · </span>18618 FM 2920, Tomball, TX · <a href="https://www.google.com/maps/search/?api=1&query=18618+FM+2920+Tomball+Texas" target="_blank" rel="noopener">Directions</a></div>
+  <div><a href="/book/#policies">Policies</a> · <a href="/book/#owner">Owner login</a><span class="hide-sm"> · © 2026 StackLab Tomball</span></div>
+</div></footer>
 </body></html>
