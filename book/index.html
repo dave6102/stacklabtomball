@@ -161,6 +161,7 @@ dl.kv dt { color: var(--muted); font-size: 13px } dl.kv dd { margin: 0; font-wei
 
 <div id="app"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ===================== helpers ===================== */
 const RES = [
@@ -243,9 +244,138 @@ const OWNER = { username: 'stacklab', salt: '6a34daba6bdc9b76', hash: '8f8f0c78a
 // Leave a value blank and that option shows "pay at the front desk" instead.
 const PAY = { balance: '', membership: '' };
 const payLink = (url, u, ref) => url ? `${url}${url.includes('?') ? '&' : '?'}prefilled_email=${encodeURIComponent(u.email)}&client_reference_id=${encodeURIComponent(ref)}` : '';
+// Shared database (Supabase). With url blank the site runs as a single-browser demo.
+const SB = { url: '', key: '' };
+const RECOVERY = /type=recovery/.test(location.hash);
+const LIVE = !!SB.url;
+const DB = LIVE && window.supabase ? window.supabase.createClient(SB.url, SB.key) : null;
 const KEY = 'stacklab-demo-v1', SKEY = 'stacklab-session-v1';
 let S;
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+const COLS = [['users', 'profiles'], ['apps', 'apps'], ['classes', 'classes'], ['blocks', 'blocks'], ['reservations', 'reservations'], ['regs', 'regs'], ['members', 'members'], ['dropins', 'dropins'], ['txns', 'txns'], ['outbox', 'outbox']];
+const SETTING_KEYS = ['hours', 'dropIn', 'membership', 'adj', 'rules'];
+let SNAP = null, flushQ = Promise.resolve(), READY = !LIVE, saveT = 0;
+const settingsOf = s => Object.fromEntries(SETTING_KEYS.map(k => [k, s[k]]));
+const rowOwner = (k, r) => k === 'users' ? r.id : (r.userId || null);
+function defaultSettings() {
+  const t = TODAY(), y = +t.slice(0, 4); let tg = thanksgiving(y); if (tg < t) tg = thanksgiving(y + 1);
+  return {
+    hours: { 0: [480, 1260], 1: [360, 1380], 2: [360, 1380], 3: [360, 1380], 4: [360, 1380], 5: [360, 1380], 6: [420, 1380] },
+    dropIn: 10, membership: 59, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
+    rules: [
+      { id: 'r1', name: 'Standard', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: '', to: '', half: 40, full: 70, gym: 130 },
+      { id: 'r2', name: 'Early bird', days: [1, 2, 3, 4, 5], start: 0, end: 540, from: '', to: '', half: 30, full: 55, gym: 100 },
+      { id: 'r3', name: 'Weekday evening peak', days: [1, 2, 3, 4, 5], start: 1020, end: 1260, from: '', to: '', half: 55, full: 100, gym: 180 },
+      { id: 'r4', name: 'Weekend daytime peak', days: [0, 6], start: 540, end: 1080, from: '', to: '', half: 50, full: 90, gym: 165 },
+      { id: 'r5', name: 'Thanksgiving Day', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: tg, to: tg, half: 35, full: 60, gym: 110 }] };
+}
+const blankState = () => ({ v: 2, seq: 0, users: [], apps: [], reservations: [], blocks: [], classes: [], regs: [], members: [], dropins: [], txns: [], outbox: [], ...defaultSettings() });
+async function fetchAll(t) {
+  let out = [];
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await DB.from(t).select('id,data').order('id').range(i, i + 999);
+    if (error) throw error;
+    out = out.concat(data.map(x => x.data));
+    if (data.length < 1000) return out;
+  }
+}
+function snapshot() {
+  SNAP = {};
+  for (const [k] of COLS) SNAP[k] = new Map(S[k].filter(r => !r._stub).map(r => [r.id, JSON.stringify(r)]));
+  SNAP._settings = JSON.stringify(settingsOf(S));
+}
+async function loadRemote() {
+  const s = blankState(), owner = isOwner(), cust = !!(SESSION && SESSION.kind === 'customer');
+  const st = await DB.from('settings').select('data').eq('id', 'main').maybeSingle();
+  if (st.error) throw st.error;
+  if (st.data) Object.assign(s, st.data.data);
+  const want = k => owner || k === 'classes' || k === 'blocks' || (cust && k !== 'outbox');
+  const lists = await Promise.all(COLS.map(([k, t]) => want(k) ? fetchAll(t) : []));
+  COLS.forEach(([k], i) => { s[k] = lists[i]; });
+  if (!owner) {
+    const b = await DB.rpc('busy_slots', { from_date: addDays(TODAY(), -1) });
+    if (b.error) throw b.error;
+    const mine = new Set(s.reservations.map(r => r.id));
+    for (const x of b.data) if (!mine.has(x.id)) s.reservations.push({ id: x.id, _stub: true, code: '', status: 'confirmed', date: x.date, resources: x.resources, start: x.start_min, end: x.end_min, customer: { name: '', email: '', phone: '' }, total: 0, paid: 0, lines: [] });
+    const c = await DB.rpc('class_counts');
+    if (c.error) throw c.error;
+    s._counts = Object.fromEntries(c.data.map(x => [x.class_id, x.n]));
+  }
+  S = s; snapshot();
+  if (owner && !st.data) { const { error } = await DB.from('settings').upsert({ id: 'main', data: settingsOf(S) }); if (error) throw error; }
+}
+async function flush() {
+  for (const [k, t] of COLS) {
+    const snap = SNAP[k], seen = new Set(), ins = [], upd = [];
+    for (const r of S[k]) {
+      if (r._stub) continue;
+      seen.add(r.id);
+      const j = JSON.stringify(r), old = snap.get(r.id);
+      if (old !== j) (old === undefined ? ins : upd).push([r, j]);
+    }
+    if (ins.length) {
+      const { error } = await DB.from(t).insert(ins.map(([r]) => ({ id: r.id, user_id: rowOwner(k, r), data: r })));
+      if (error) throw error;
+      ins.forEach(([r, j]) => snap.set(r.id, j));
+    }
+    for (const [r, j] of upd) {
+      const { error } = await DB.from(t).update({ data: r, updated_at: new Date().toISOString() }).eq('id', r.id);
+      if (error) throw error;
+      snap.set(r.id, j);
+    }
+    const del = [...snap.keys()].filter(id => !seen.has(id));
+    if (del.length && isOwner()) {
+      const { error } = await DB.from(t).delete().in('id', del);
+      if (error) throw error;
+      del.forEach(id => snap.delete(id));
+    }
+  }
+  const sj = JSON.stringify(settingsOf(S));
+  if (sj !== SNAP._settings && isOwner()) {
+    const { error } = await DB.from('settings').upsert({ id: 'main', data: settingsOf(S), updated_at: new Date().toISOString() });
+    if (error) throw error;
+    SNAP._settings = sj;
+  }
+}
+function friendly(e) {
+  const m = (e && (e.message || e.error_description)) || String(e), k = m.split(':')[0];
+  const known = { slot_taken: 'Someone just booked that time. Pick another start time.', class_full: 'This class just filled up.', class_closed: 'This class is not open for sign-ups.',
+    not_approved: 'Your account is not approved for court rentals yet.', past: 'That day has already passed.', not_found: 'That booking was not found.', not_allowed: 'Only the owner can do that.' };
+  if (known[k]) return known[k];
+  if (k === 'too_late') return m.slice(m.indexOf(':') + 1).trim();
+  return `Could not save. Check your internet connection and try again. (${m})`;
+}
+// Saves return a promise that resolves to null, or to the error after reloading the server's copy.
+function save() {
+  if (!LIVE) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} return Promise.resolve(null); }
+  if (!READY) return Promise.resolve(null);
+  clearTimeout(saveT);
+  const p = flushQ.then(flush).then(() => null, async e => {
+    console.error(e);
+    try { await loadRemote(); } catch (x) {}
+    UI.flash = friendly(e); render(); return e;
+  });
+  flushQ = p; return p;
+}
+function saveSoon() { if (!LIVE) return save(); clearTimeout(saveT); saveT = setTimeout(save, 500); }
+async function refreshSession() {
+  const { data } = await DB.auth.getSession(), session = data && data.session;
+  if (!session) { SESSION = null; return; }
+  const own = await DB.rpc('is_owner');
+  SESSION = own.data ? { kind: 'owner', email: session.user.email } : { kind: 'customer', userId: session.user.id, email: session.user.email };
+}
+async function startLive() {
+  if (!DB) { UI.fatal = 'Could not reach the booking system. Check your internet connection and reload the page.'; render(); return; }
+  DB.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') { UI.view = 'customer'; UI.ctab = 'newpw'; render(); } });
+  try { await refreshSession(); await loadRemote(); READY = true; }
+  catch (e) { console.error(e); UI.fatal = 'Could not load the booking system. Please reload the page in a minute.'; }
+  if (RECOVERY) { UI.view = 'customer'; UI.ctab = 'newpw'; }
+  render();
+  setInterval(() => {
+    const el = document.activeElement, typing = el && /INPUT|TEXTAREA|SELECT/.test(el.tagName);
+    if (READY && document.visibilityState === 'visible' && !UI.panel && !typing && UI.ctab !== 'checkout' && !UI.busy)
+      flushQ.then(loadRemote).then(render).catch(() => {});
+  }, 60000);
+}
 function migrate() {
   if (S.v === 2) return;
   S.users = S.users || []; S.apps = S.apps || []; S.v = 2; seedAccounts();
@@ -256,8 +386,8 @@ function load() {
 }
 /* sessions: { kind: 'owner' } or { kind: 'customer', userId } */
 let SESSION = null;
-function loadSession() { try { SESSION = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { SESSION = null; } }
-function saveSession() { try { SESSION ? localStorage.setItem(SKEY, JSON.stringify(SESSION)) : localStorage.removeItem(SKEY); } catch (e) {} }
+function loadSession() { if (LIVE) return; try { SESSION = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { SESSION = null; } }
+function saveSession() { if (LIVE) return; try { SESSION ? localStorage.setItem(SKEY, JSON.stringify(SESSION)) : localStorage.removeItem(SKEY); } catch (e) {} }
 const isOwner = () => !!SESSION && SESSION.kind === 'owner';
 const me = () => SESSION && SESSION.kind === 'customer' ? S.users.find(u => u.id === SESSION.userId) || null : null;
 const userByLogin = s => { s = (s || '').trim().toLowerCase(); return S.users.find(u => u.username.toLowerCase() === s || u.email.toLowerCase() === s); };
@@ -349,7 +479,7 @@ function refundRef(kind, id, amt, why) {
 function notify(to, subject, body) { S.outbox.unshift({ id: uid('m'), at: nowISO(), to, subject, body }); }
 
 function createReservation(o) {
-  const r = { id: uid('r'), code: 'SL-' + (++S.seq), status: 'confirmed', date: o.date, resources: sortRes(o.resources), start: o.start, end: o.end,
+  const r = { id: uid('r'), code: 'SL-' + (LIVE ? Math.random().toString(36).slice(2, 7).toUpperCase() : ++S.seq), status: 'confirmed', date: o.date, resources: sortRes(o.resources), start: o.start, end: o.end,
     customer: o.customer, total: r2(o.total), listTotal: o.listTotal ?? o.total, lines: o.lines, paid: 0, note: o.note || '', createdBy: o.by, createdAt: nowISO() };
   S.reservations.push(r);
   if (o.method !== 'unpaid' && r.total > 0) { charge('rental', `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, r.total, o.method, { kind: 'res', id: r.id }); r.paid = r.total; }
@@ -496,11 +626,19 @@ const needLogin = (what, after) => `<section class="card stack narrow"><h2>Log i
 function custLogin() {
   const f = UI.auth;
   return `<section class="card stack narrow"><h2>Log in</h2>
-    <div class="stack" style="gap:10px">${txt('UI.auth.id', 'Username or email')}<label class="field"><span>Password</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
+    ${UI.notice ? `<div class="flash">${esc(UI.notice)}</div>` : ''}<div class="stack" style="gap:10px">${txt('UI.auth.id', LIVE ? 'Email' : 'Username or email', LIVE ? 'email' : 'text')}<label class="field"><span>Password</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
     ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
     <div><button class="btn primary" data-act="doLogin">Log in</button></div>
     <p class="small muted" style="margin:0">New here? <button class="linkbtn" data-act="goAuth" data-val="signup" data-after="${esc(UI.after || '')}">Create an account</button></p>
-    <p class="small muted" style="margin:0">Forgot your password? Ask at the front desk. Staff can give you a temporary password, then you can change it under My account.</p></section>`;
+    ${LIVE ? `<p class="small muted" style="margin:0">Forgot your password? Type your email above, then <button class="linkbtn" data-act="forgotPw">email me a reset link</button>.</p>`
+      : `<p class="small muted" style="margin:0">Forgot your password? Ask at the front desk. Staff can give you a temporary password, then you can change it under My account.</p>`}</section>`;
+}
+function custNewPw() {
+  const f = UI.pwc;
+  return `<section class="card stack narrow"><h2>Choose a new password</h2>
+    <label class="field"><span>New password (at least 8 characters)</span><input type="password" ${bind('UI.pwc.n1')} value="${esc(f.n1)}" autocomplete="new-password"></label>
+    <label class="field"><span>Confirm new password</span><input type="password" ${bind('UI.pwc.n2')} value="${esc(f.n2)}" autocomplete="new-password"></label>
+    ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}<div><button class="btn primary" data-act="setNewPw">Save new password</button></div></section>`;
 }
 function custSignup() {
   const f = UI.auth;
@@ -597,7 +735,7 @@ function classSchedule(c) {
   return `${c.days.map(d => DAYS[d]).join(' & ')} ${fmtT(c.start)}–${fmtT(c.end)} · ${ss.length ? fmtD(ss[0], { month: 'short', day: 'numeric' }) + ' – ' + fmtD(ss[ss.length - 1], { month: 'short', day: 'numeric' }) : 'no dates'} (${ss.length} sessions)`;
 }
 const canSelfCancel = r => r.status === 'confirmed' && (parse(r.date).getTime() + r.start * 60000 - Date.now()) >= 24 * 3600000;
-const enrolled = c => S.regs.filter(g => g.classId === c.id && g.status === 'active').length;
+const enrolled = c => S._counts ? (S._counts[c.id] || 0) : S.regs.filter(g => g.classId === c.id && g.status === 'active').length;
 function custClasses() {
   const t = TODAY(), cl = UI.cl;
   const list = S.classes.filter(c => c.status === 'active' && sessionsOf(c).some(d => d >= t));
@@ -671,6 +809,7 @@ function custPolicies() {
     ${sec('Cancellations and refunds', ['<b>Court rentals:</b> cancel online at least 24 hours before your start time for a full refund. Inside 24 hours, the full price is due.', '<b>Classes:</b> full refund if you cancel before the first session. After the first session, no refund unless StackLab cancels the class.', '<b>Open-gym membership:</b> cancel anytime. Access continues to the end of the month you paid for; no partial-month refunds.', '<b>Drop-in passes:</b> refundable or movable to another day if you ask before that day.', 'If StackLab cancels anything (weather, maintenance, emergency), you get a full refund or a free reschedule.', 'Refunds go back to the original payment method within 5–10 business days.'])}
     ${sec('Gym rules', ['Clean, non-marking basketball shoes only.', 'No food, gum or drinks except water on the courts.', 'Players under 14 need an adult in the building.', 'Stay on the half or court you booked, and end on time.', 'Renters pay for damage they or their group cause.'])}
     ${sec('Liability waiver', ['Basketball has risks, including sprains, broken bones and other injuries. You take part voluntarily and accept those risks.', 'You release StackLab Tomball and its owners and staff from claims for injuries that happen during normal play, except those caused by gross negligence.', 'You confirm you are physically able to play. A parent or guardian signing up a child agrees to this for the child.', 'StackLab may take photos in the gym; ask the front desk if you do not want to be photographed.'])}
+    ${sec('Contact us', ['Email <a href="mailto:info@stacklabtomball.com">info@stacklabtomball.com</a> with questions, changes or refund requests.'])}
     ${sec('Privacy', ['We collect your name, email, phone and booking history to run your bookings and contact you about them.', 'We do not sell your information. Payment details stay with Stripe.', 'Ask the front desk to update or delete your account at any time.'])}
     <div><button class="btn" data-act="tab" data-val="classes">Back to booking</button></div></section>`;
 }
@@ -909,7 +1048,7 @@ function ownerMembers() {
 function ownerLogin() {
   const f = UI.olog;
   return `<section class="card stack narrow"><h2>Owner login</h2>
-    <div class="stack" style="gap:10px">${txt('UI.olog.user', 'Username')}<label class="field"><span>Password</span><input type="password" ${bind('UI.olog.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
+    <div class="stack" style="gap:10px">${txt('UI.olog.user', LIVE ? 'Owner email' : 'Username', LIVE ? 'email' : 'text')}<label class="field"><span>Password</span><input type="password" ${bind('UI.olog.pw')} value="${esc(f.pw)}" autocomplete="current-password"></label></div>
     ${f.err ? `<div class="err">${esc(f.err)}</div>` : ''}
     <div class="row"><button class="btn primary" data-act="doOwnerLogin">Log in</button><button class="btn" data-act="view" data-val="customer">Back to website</button></div></section>`;
 }
@@ -929,7 +1068,7 @@ function ownerCustomers() {
     <div class="row"><h3 style="flex:1">All accounts (${S.users.length})</h3><input type="text" ${bind('UI.cq', true)} value="${esc(UI.cq || '')}" placeholder="Search name, username or email"></div>
     <div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>Username</th><th>Joined</th><th>Court rentals</th><th></th></tr>
     ${users.map(u => `<tr><td>${esc(u.name)}<br><span class="small muted">${esc(u.email)} · ${esc(u.phone || '')}</span></td><td>${esc(u.username)}</td><td>${fmtD(u.createdAt.slice(0, 10))}</td><td>${accPill(u)}</td>
-      <td><div class="row" style="gap:6px">${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}${askBtn('pw' + u.id, 'Reset password', 'resetPw', `data-id="${u.id}"`, 'btn sm')}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
+      <td><div class="row" style="gap:6px">${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}${askBtn('pw' + u.id, LIVE ? 'Send reset email' : 'Reset password', 'resetPw', `data-id="${u.id}"`, 'btn sm')}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
     <p class="small muted" style="margin:0">Approved customers can book court time online. Everyone with an account can sign up for classes and open gym.</p></div>`;
 }
 function duesList() {
@@ -965,15 +1104,16 @@ function ownerSettings() {
       return `<tr><td><b>${d}</b></td><td><label class="check"><input type="checkbox" data-act="hoursToggle" data-i="${i}" ${h ? 'checked' : ''}> Open</label></td><td>${h ? `${timeSel(`S.hours.${i}.0`, 0, 1410)} to ${timeSel(`S.hours.${i}.1`, 30, 1440)}` : '<span class="muted">Closed</span>'}</td></tr>`; }).join('')}</table></div></div>
     <div class="card stack"><h3>Online payments</h3><p style="margin:0"><span class="pill warn">Not connected</span> Customers confirm at checkout and pay at the front desk. Record those payments under Payments → Waiting for payment.</p>
       <p class="small muted" style="margin:0">To switch on card payments: open a free Stripe account (stripe.com), create a Payment Link set to "Customers choose what to pay" (and optionally a monthly membership link), and send both links to your site administrator. Checkout and the customer Payments page then send customers to Stripe. Stripe emails you each payment; match it to the customer's reference here and press Mark paid.</p></div>
-    <div class="card stack"><h3>Owner login</h3><p class="small muted" style="margin:0">Logged in as <b>${OWNER.username}</b>. To change the owner password, ask your site administrator. It's set in the site code until the site has a shared database.</p><div><button class="btn" data-act="logout">Log out</button></div></div>
-    <div class="card stack"><h3>Demo data</h3><p class="small muted" style="margin:0">Everything in this demo saves in your browser only. Reset to start over with the sample bookings.</p><div>${askBtn('reset', 'Reset demo data', 'reset')}</div></div></div>`;
+    <div class="card stack"><h3>Owner login</h3>${LIVE ? `<p class="small muted" style="margin:0">Logged in as <b>${esc(SESSION.email || '')}</b>. To change your password, send yourself a reset link.</p><div><button class="btn" data-act="ownerPw">Email me a password-reset link</button></div>`
+      : `<p class="small muted" style="margin:0">Logged in as <b>${OWNER.username}</b>. To change the owner password, ask your site administrator.</p>`}<div><button class="btn" data-act="logout">Log out</button></div></div>
+    ${LIVE ? '' : `<div class="card stack"><h3>Demo data</h3><p class="small muted" style="margin:0">Everything in this demo saves in your browser only. Reset to start over with the sample bookings.</p><div>${askBtn('reset', 'Reset demo data', 'reset')}</div></div>`}</div>`;
 }
 
 /* ===================== main render ===================== */
 const app = document.getElementById('app');
 function render() {
   const active = document.activeElement && document.activeElement.id;
-  if (UI.view === 'owner' && !isOwner()) UI.view = 'ownerlogin';
+  if (UI.view === 'owner' && !isOwner() && READY) UI.view = 'ownerlogin';
   const cust = UI.view === 'customer', ologin = UI.view === 'ownerlogin', u = me();
   const pending = S.apps.filter(a => a.status === 'pending').length;
   const nDue = u ? myDues(u).length : 0;
@@ -985,23 +1125,24 @@ function render() {
          : `<div class="who"><button class="btn sm" data-act="goAuth" data-val="login" data-after="">Log in</button><button class="btn sm primary" data-act="goAuth" data-val="signup" data-after="">Sign up</button></div>`)
     : `<div class="who"><button class="btn sm" data-act="view" data-val="customer">View website</button><button class="btn sm" data-act="logout">Log out</button></div>`;
   let body;
-  if (ologin) body = ownerLogin();
+  if (LIVE && (!READY || UI.fatal)) body = `<section class="card stack narrow"><p style="margin:0">${UI.fatal ? esc(UI.fatal) : 'Loading…'}</p></section>`;
+  else if (ologin) body = ownerLogin();
   else if (cust) {
     if (UI.ctab === 'account' && !u) { UI.ctab = 'login'; UI.after = 'account'; }
     if (UI.ctab === 'checkout' && !u) UI.ctab = 'login';
     if (UI.ctab === 'pay' && !u) { UI.ctab = 'login'; UI.after = 'pay'; }
-    body = (UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : '') + { pay: custPay, policies: custPolicies, book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
+    body = (UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : '') + { newpw: custNewPw, pay: custPay, policies: custPolicies, book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
   } else {
     const main = { calendar: ownerCalendar, reservations: ownerReservations, customers: ownerCustomers, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
     const p = UI.panel;
     const panel = p ? `<aside class="panel" aria-label="Details">${{ sel: selPanel, item: itemPanel, res: resPanel, cancel: cancelPanel, cls: classPanel }[p.type](p)}</aside>` : '';
     body = `${UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : ''}<div class="owner${p ? ' has-panel' : ''}"><div style="min-width:0">${main}</div>${panel}</div>`;
   }
-  app.innerHTML = `<div class="demo"><div class="wrap"><b>Preview: online booking is not live yet</b>
-      <span>Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.</span></div></div>
+  app.innerHTML = `<div class="demo"><div class="wrap"><b>${LIVE ? 'Online booking is new' : 'Preview: online booking is not live yet'}</b>
+      <span>${LIVE ? 'Bookings are real and held for you. Card payment online is coming soon, so please pay at the front desk.' : 'Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.'}</span></div></div>
     <header class="top"><div class="wrap"><div class="brand"><h1><a href="/" style="color:inherit;text-decoration:none" title="StackLab home">StackLab Tomball</a></h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div>${who}<nav class="tabs" style="flex-basis:100%">${tabs}</nav></div></header>
     <main class="wrap">${body}
-      ${cust ? `<footer class="foot"><span><a href="/" style="color:inherit">← StackLab home</a> · 18618 FM 2920, Tomball, TX</span><span><button class="linkbtn" data-act="tab" data-val="policies">Policies &amp; waiver</button> · <button class="linkbtn" data-act="view" data-val="owner">Owner login</button></span></footer>` : ''}</main>`;
+      ${cust ? `<footer class="foot"><span><a href="/" style="color:inherit">← StackLab home</a> · 18618 FM 2920, Tomball, TX · <a href="mailto:info@stacklabtomball.com" style="color:inherit">info@stacklabtomball.com</a></span><span><button class="linkbtn" data-act="tab" data-val="policies">Policies &amp; waiver</button> · <button class="linkbtn" data-act="view" data-val="owner">Owner login</button></span></footer>` : ''}</main>`;
   bindCal();
   if (active) { const el = document.getElementById(active); if (el && el.focus) el.focus({ preventScroll: true }); }
 }
@@ -1118,19 +1259,60 @@ const ACT = {
       notify(u.email, 'Open-gym pass', `Drop-in for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. ${money(d.price)} due at the front desk.`);
       o.done = `Drop-in pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
     }
+    if (o.kind === 'class' && S._counts) S._counts[o.classId] = (S._counts[o.classId] || 0) + 1;
+    if (LIVE) {
+      const w = UI.paym === 'online' && onlineReady(o.kind) ? window.open('about:blank', '_blank') : null;
+      window.scrollTo(0, 0);
+      return save().then(err => {
+        if (err) { o.done = ''; o.err = friendly(err); UI.flash = ''; if (w) w.close(); return; }
+        if (w) w.location = payLink(o.kind === 'mem' && PAY.membership ? PAY.membership : PAY.balance, u, `${u.username}: ${o.kind}`);
+      });
+    }
     save(); window.scrollTo(0, 0);
     if (UI.paym === 'online' && onlineReady(o.kind)) { const url = o.kind === 'mem' && PAY.membership ? PAY.membership : PAY.balance; window.open(payLink(url, u, `${u.username}: ${o.kind}`), '_blank', 'noopener'); }
   },
   paym(a) { UI.paym = a.dataset.val; },
   changePw() {
     const u = me(), f = UI.pwc; f.err = ''; f.ok = ''; if (!u) return;
+    if (LIVE) return (async () => {
+      if ((f.n1 || '').length < 8) return void (f.err = 'Use a new password of at least 8 characters.');
+      if (f.n1 !== f.n2) return void (f.err = "The two new passwords don't match.");
+      const chk = await DB.auth.signInWithPassword({ email: u.email, password: f.cur });
+      if (chk.error) return void (f.err = 'Your current password is not right.');
+      const { error } = await DB.auth.updateUser({ password: f.n1 });
+      if (error) return void (f.err = error.message);
+      UI.pwc = blankPwc(); UI.pwc.ok = 'Password changed.';
+    })();
     if (hashPw(f.cur, u.salt) !== u.hash) return void (f.err = 'Your current password is not right.');
     if ((f.n1 || '').length < 8) return void (f.err = 'Use a new password of at least 8 characters.');
     if (f.n1 !== f.n2) return void (f.err = "The two new passwords don't match.");
     u.salt = newSalt(); u.hash = hashPw(f.n1, u.salt); u.tempPw = false;
     UI.pwc = blankPwc(); UI.pwc.ok = 'Password changed.'; save();
   },
+  forgotPw() {
+    const f = UI.auth, email = f.id.trim(); f.err = ''; UI.notice = '';
+    if (!validEmail(email)) return void (f.err = 'Type your account email in the Email box first.');
+    return DB.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/book/' }).then(({ error }) => {
+      if (error) f.err = error.message; else UI.notice = `If ${email} has an account, a reset link is on its way. Check your inbox.`;
+    });
+  },
+  setNewPw() {
+    const f = UI.pwc; f.err = '';
+    if ((f.n1 || '').length < 8) return void (f.err = 'Use a password of at least 8 characters.');
+    if (f.n1 !== f.n2) return void (f.err = "The two passwords don't match.");
+    return DB.auth.updateUser({ password: f.n1 }).then(async ({ error }) => {
+      if (error) return void (f.err = error.message);
+      UI.pwc = blankPwc(); await refreshSession(); await loadRemote();
+      if (isOwner()) UI.view = 'owner'; else { UI.ctab = 'account'; UI.pwc.ok = 'Your new password is saved.'; }
+      history.replaceState(null, '', location.pathname);
+    });
+  },
+  ownerPw() {
+    return DB.auth.resetPasswordForEmail(SESSION.email, { redirectTo: location.origin + '/book/' }).then(({ error }) => { UI.flash = error ? error.message : `Reset link sent to ${SESSION.email}.`; });
+  },
   resetPw(a) {
+    if (LIVE) { const u = S.users.find(x => x.id === a.dataset.id); UI.confirm = null;
+      return DB.auth.resetPasswordForEmail(u.email, { redirectTo: location.origin + '/book/' }).then(({ error }) => { UI.flash = error ? error.message : `Sent a password-reset email to ${u.email}.`; }); }
     const u = S.users.find(x => x.id === a.dataset.id), chars = 'abcdefghjkmnpqrstuvwxyz23456789';
     const temp = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     u.salt = newSalt(); u.hash = hashPw(temp, u.salt); u.tempPw = true;
@@ -1138,6 +1320,10 @@ const ACT = {
   },
   custCancel(a) {
     const u = me(), r = find('reservations', a.dataset.id); UI.confirm = null;
+    if (LIVE) return DB.rpc('cancel_my_reservation', { rid: a.dataset.id }).then(async ({ error }) => {
+      if (error) return void (UI.flash = friendly(error));
+      await loadRemote(); UI.flash = `Cancelled ${r.code}.${r.paid > 0 ? ' The front desk will refund what you paid.' : ''}`;
+    });
     if (!u || !r || r.customer.email.toLowerCase() !== u.email.toLowerCase() || !canSelfCancel(r)) return;
     const refund = r.paid > 0 ? refundRef('res', r.id, r.paid, 'cancelled by customer') : 0;
     r.status = 'cancelled'; r.cancel = { at: nowISO(), refund, keep: false, reason: 'Cancelled by customer online' };
@@ -1147,7 +1333,14 @@ const ACT = {
   // accounts
   goAuth(a) { UI.ctab = a.dataset.val; UI.after = a.dataset.after || UI.after || ''; UI.auth.err = ''; UI.auth.pw = ''; UI.auth.pw2 = ''; window.scrollTo(0, 0); },
   doLogin() {
-    const f = UI.auth; f.err = '';
+    const f = UI.auth; f.err = ''; UI.notice = '';
+    if (LIVE) return (async () => {
+      const { error } = await DB.auth.signInWithPassword({ email: f.id.trim(), password: f.pw });
+      if (error) { f.err = /confirm/i.test(error.message) ? 'Please confirm your email first. Check your inbox for the link.' : 'That email or password is not right.'; return; }
+      await refreshSession(); await loadRemote();
+      if (isOwner()) UI.view = 'owner'; else UI.ctab = UI.after || 'classes';
+      UI.auth = blankAuth(); UI.after = ''; window.scrollTo(0, 0);
+    })();
     const u = userByLogin(f.id);
     if (!u || hashPw(f.pw, u.salt) !== u.hash) return void (f.err = 'That username or password is not right.');
     SESSION = { kind: 'customer', userId: u.id }; saveSession();
@@ -1164,12 +1357,22 @@ const ACT = {
     if ((f.pw || '').length < 8) return void (f.err = 'Use a password of at least 8 characters.');
     if (f.pw !== f.pw2) return void (f.err = "The two passwords don't match.");
     if (!f.agree) return void (f.err = 'Please agree to the policies and liability waiver.');
+    if (LIVE) return (async () => {
+      const taken = await DB.rpc('username_taken', { u: user });
+      if (taken.data) { f.err = 'That username is taken. Try another.'; return; }
+      const { data, error } = await DB.auth.signUp({ email, password: f.pw, options: { data: { name, username: user, phone: f.phone.trim(), agree: true }, emailRedirectTo: location.origin + '/book/' } });
+      if (error) { f.err = /registered|exists/i.test(error.message) ? 'An account with that email already exists. Log in instead.' : error.message; return; }
+      if (!data.session) { UI.auth = blankAuth(); UI.notice = `Almost done: open the email we sent to ${email} and click the link to confirm, then log in.`; UI.ctab = 'login'; return; }
+      await refreshSession(); await loadRemote();
+      notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`); save();
+      UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; window.scrollTo(0, 0);
+    })();
     const salt = newSalt(), u = { id: uid('u'), name, username: user, email, phone: f.phone.trim(), salt, hash: hashPw(f.pw, salt), createdAt: nowISO(), access: 'none', waiverAt: nowISO() };
     S.users.push(u); SESSION = { kind: 'customer', userId: u.id }; saveSession();
     notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`);
     UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; save(); window.scrollTo(0, 0);
   },
-  logout() { SESSION = null; saveSession(); UI.view = 'customer'; UI.ctab = 'classes'; UI.co = null; UI.panel = null; window.scrollTo(0, 0); },
+  logout() { SESSION = null; saveSession(); if (LIVE) { READY = false; DB.auth.signOut().then(loadRemote).then(() => { READY = true; render(); }, () => { READY = true; render(); }); } UI.view = 'customer'; UI.ctab = 'classes'; UI.co = null; UI.panel = null; window.scrollTo(0, 0); },
   doApply() {
     const u = me(), f = UI.ap; f.err = ''; if (!u) return;
     if (!f.size.trim() || !f.when.trim()) return void (f.err = 'Tell us roughly how many people and when you would book.');
@@ -1182,6 +1385,13 @@ const ACT = {
   // owner login + approvals
   doOwnerLogin() {
     const f = UI.olog; f.err = '';
+    if (LIVE) return (async () => {
+      const { error } = await DB.auth.signInWithPassword({ email: f.user.trim(), password: f.pw });
+      if (error) { f.err = 'That email or password is not right.'; return; }
+      await refreshSession();
+      if (!isOwner()) { await DB.auth.signOut(); SESSION = null; f.err = 'That account is not the owner account.'; return; }
+      await loadRemote(); UI.olog = { user: '', pw: '', err: '' }; UI.view = 'owner'; window.scrollTo(0, 0);
+    })();
     if (f.user.trim().toLowerCase() !== OWNER.username || hashPw(f.pw, OWNER.salt) !== OWNER.hash) return void (f.err = 'That username or password is not right.');
     SESSION = { kind: 'owner' }; saveSession(); UI.olog = { user: '', pw: '', err: '' }; UI.view = 'owner'; window.scrollTo(0, 0);
   },
@@ -1336,14 +1546,15 @@ app.addEventListener('click', e => {
   const act = a.dataset.act, f = ACT[act]; if (!f) return;
   if (act !== 'ask' && act !== 'unask' && !a.closest('.confirm-line')) UI.confirm = null;
   if (UI.view === 'owner' && !['unflash', 'ask', 'unask', 'togArr', 'setv', 'setArr', 'allDay'].includes(act)) UI.flash = '';
-  f(a, e); render();
+  const ret = f(a, e); render();
+  if (ret && ret.then) { UI.busy = true; ret.then(() => {}, err => { console.error(err); UI.flash = friendly(err); }).finally(() => { UI.busy = false; render(); }); }
 });
 function readVal(el) {
   if (el.type === 'checkbox') return el.checked;
   if ('num' in el.dataset) return el.value === '' ? '' : Number(el.value);
   return el.value;
 }
-app.addEventListener('input', e => { const el = e.target; if (!el.dataset || !el.dataset.bind || el.type === 'checkbox' || el.tagName === 'SELECT') return; setPath(el.dataset.bind, readVal(el)); if (el.dataset.bind.startsWith('S.')) save(); });
+app.addEventListener('input', e => { const el = e.target; if (!el.dataset || !el.dataset.bind || el.type === 'checkbox' || el.tagName === 'SELECT') return; setPath(el.dataset.bind, readVal(el)); if (el.dataset.bind.startsWith('S.')) saveSoon(); });
 app.addEventListener('change', e => {
   const el = e.target; if (!el.dataset || !el.dataset.bind) return;
   setPath(el.dataset.bind, readVal(el)); if (el.dataset.bind.startsWith('S.')) save();
@@ -1352,7 +1563,7 @@ app.addEventListener('change', e => {
   if ('rr' in el.dataset || el.type === 'checkbox' || el.tagName === 'SELECT') render();
 });
 
-load(); loadSession();
+if (LIVE) S = blankState(); else { load(); loadSession(); }
 UI.cs.date = TODAY(); UI.oc.date = TODAY(); UI.og.date = TODAY();
 function routeHash() {
   const h = (location.hash || '').slice(1);
@@ -1361,5 +1572,6 @@ function routeHash() {
 }
 try { routeHash(); window.addEventListener('hashchange', () => { routeHash(); render(); window.scrollTo(0, 0); }); } catch (e) {}
 render();
+if (LIVE) startLive();
 </script>
 </body></html>
