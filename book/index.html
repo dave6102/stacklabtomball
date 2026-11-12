@@ -245,7 +245,7 @@ const OWNER = { username: 'stacklab', salt: '6a34daba6bdc9b76', hash: '8f8f0c78a
 const PAY = { balance: '', membership: '' };
 const payLink = (url, u, ref) => url ? `${url}${url.includes('?') ? '&' : '?'}prefilled_email=${encodeURIComponent(u.email)}&client_reference_id=${encodeURIComponent(ref)}` : '';
 // Shared database (Supabase). With url blank the site runs as a single-browser demo.
-const SB = { url: '', key: '' };
+const SB = { url: 'https://molsqfcnyybjozljiwqn.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vbHNxZmNueXliam96bGppd3FuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0NDg3NTYsImV4cCI6MjExMDAyNDc1Nn0.JHlmtsVKgyOkaW_5Bsni5CJyWzxAXclbcqlRKyJs1h8' };
 const RECOVERY = /type=recovery/.test(location.hash);
 const LIVE = !!SB.url;
 const DB = LIVE && window.supabase ? window.supabase.createClient(SB.url, SB.key) : null;
