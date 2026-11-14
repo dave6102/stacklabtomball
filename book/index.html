@@ -131,6 +131,8 @@ dl.kv dt { color: var(--muted); font-size: 13px } dl.kv dd { margin: 0; font-wei
 .cal .cell.div { border-right: 2px solid var(--muted) }
 .cal .cell.closed { background: repeating-linear-gradient(135deg, var(--closed) 0 6px, var(--surface) 6px 12px) }
 .cal .cell:hover { background: var(--accent-soft) }
+.cal.pub .cell:hover { background: var(--surface) }
+.cal.pub .cell.closed:hover { background: repeating-linear-gradient(135deg, var(--closed) 0 6px, var(--surface) 6px 12px) }
 .cal .item { margin: 1px 2px; border-radius: 5px; border: 0; text-align: left; padding: 2px 6px; overflow: hidden; font-size: 12px; line-height: 1.25; z-index: 2; display: flex; flex-direction: column; min-width: 0 }
 .cal .item b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cal .item span { opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -260,7 +262,7 @@ function defaultSettings() {
   const t = TODAY(), y = +t.slice(0, 4); let tg = thanksgiving(y); if (tg < t) tg = thanksgiving(y + 1);
   return {
     hours: { 0: [480, 1260], 1: [360, 1380], 2: [360, 1380], 3: [360, 1380], 4: [360, 1380], 5: [360, 1380], 6: [420, 1380] },
-    dropIn: 10, membership: 59, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
+    dropIn: 20, membership: 50, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
     rules: [
       { id: 'r1', name: 'Standard', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: '', to: '', half: 40, full: 70, gym: 130 },
       { id: 'r2', name: 'Early bird', days: [1, 2, 3, 4, 5], start: 0, end: 540, from: '', to: '', half: 30, full: 55, gym: 100 },
@@ -492,7 +494,7 @@ function seed() {
   let tg = thanksgiving(y); if (tg < t) tg = thanksgiving(y + 1);
   S = { v: 2, seq: 1040, users: [], apps: [],
     hours: { 0: [480, 1260], 1: [360, 1380], 2: [360, 1380], 3: [360, 1380], 4: [360, 1380], 5: [360, 1380], 6: [420, 1380] },
-    dropIn: 10, membership: 59, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
+    dropIn: 20, membership: 50, adj: { C1N: 0, C1S: 0, C2N: 0, C2S: 0 },
     rules: [
       { id: 'r1', name: 'Standard', days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, from: '', to: '', half: 40, full: 70, gym: 130 },
       { id: 'r2', name: 'Early bird', days: [1, 2, 3, 4, 5], start: 0, end: 540, from: '', to: '', half: 30, full: 55, gym: 100 },
@@ -531,7 +533,7 @@ function seed() {
 
   const mem = (name, email, startOff, cancelled) => {
     const start = addDays(t, startOff); const m = { id: uid('m'), name, email, start, price: S.membership, status: cancelled ? 'cancelled' : 'active', nextBill: start, cancelledAt: '' };
-    while (m.nextBill <= t && !(cancelled && m.nextBill > addDays(t, -10))) { const x = charge('membership', `Open-gym membership: ${name}`, m.price, 'card', { kind: 'mem', id: m.id }); x.at = atISO(m.nextBill, 480); m.nextBill = addMonths(m.nextBill, 1); }
+    while (m.nextBill <= t && !(cancelled && m.nextBill > addDays(t, -10))) { const x = charge('membership', `Gym-access membership: ${name}`, m.price, 'card', { kind: 'mem', id: m.id }); x.at = atISO(m.nextBill, 480); m.nextBill = addMonths(m.nextBill, 1); }
     if (cancelled) m.cancelledAt = addDays(t, -20);
     S.members.push(m); return m;
   };
@@ -541,7 +543,7 @@ function seed() {
   S.txns = S.txns.filter(x => !(x.ref && x.ref.id === ds2.id) || x === first); ds2.nextBill = addMonths(ds2.start, 1);
   for (const [n, e, off] of [['Ryan Lee', 'rlee@example.com', 0], ['Grace Okafor', 'gokafor@example.com', -1]]) {
     const d = { id: uid('d'), name: n, email: e, date: addDays(t, off), price: S.dropIn }; S.dropins.push(d);
-    const x = charge('dropin', `Open-gym drop-in: ${n} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id }); x.at = atISO(d.date, 540);
+    const x = charge('dropin', `Gym-access day pass: ${n} (${fmtD(d.date)})`, d.price, 'card', { kind: 'drop', id: d.id }); x.at = atISO(d.date, 540);
   }
   seedAccounts();
   save();
@@ -569,7 +571,7 @@ function seedAccounts() {
 const UI = {
   view: 'customer', ctab: 'classes', otab: 'calendar', after: '', co: null, cq: '', dnote: {},
   auth: null, ap: null, olog: { user: '', pw: '', err: '' },
-  cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, rep: false, weeks: 8, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
+  av: { date: '' }, cs: { mode: 'full', custom: ['C1N'], date: '', dur: 60, start: null, rep: false, weeks: 8, name: '', email: '', phone: '', card: '4242 4242 4242 4242', err: '', done: null },
   cl: { open: null, name: '', email: '', phone: '', err: '', done: null },
   og: { which: null, name: '', email: '', date: '', err: '', done: null },
   my: { email: '' },
@@ -664,7 +666,7 @@ function custNewPw() {
 function custSignup() {
   const f = UI.auth;
   return `<section class="card stack narrow"><h2>Create your account</h2>
-    <p class="small muted" style="margin:0">With an account you can sign up for classes and open gym right away. To rent court time, you also apply once and the owner approves you.</p>
+    <p class="small muted" style="margin:0">With an account you can sign up for classes or buy gym access for private training right away. To rent court time, you also apply once and the owner approves you.</p>
     <div class="stack" style="gap:10px">${txt('UI.auth.name', 'Full name')}${txt('UI.auth.email', 'Email', 'email')}${txt('UI.auth.phone', 'Phone', 'tel')}${txt('UI.auth.user', 'Choose a username')}
       <label class="field"><span>Password (at least 8 characters)</span><input type="password" ${bind('UI.auth.pw')} value="${esc(f.pw)}" autocomplete="new-password"></label>
       <label class="field"><span>Confirm password</span><input type="password" ${bind('UI.auth.pw2')} value="${esc(f.pw2)}" autocomplete="new-password"></label>
@@ -676,9 +678,9 @@ function custSignup() {
 function custApply(u) {
   const a = appOf(u), f = UI.ap;
   if (a && a.status === 'pending') return `<section class="card stack narrow"><h2>Application received</h2>
-    <p style="margin:0">Thanks, ${esc(u.name.split(' ')[0])}. The owner reviews court-rental applications and will email ${esc(u.email)} when you're approved. Until then you can sign up for classes and open gym.</p>
+    <p style="margin:0">Thanks, ${esc(u.name.split(' ')[0])}. The owner reviews court-rental applications and will email ${esc(u.email)} when you're approved. Until then you can sign up for classes or buy gym access for private training.</p>
     <dl class="kv"><dt>Submitted</dt><dd>${fmtD(a.at.slice(0, 10))}</dd><dt>Use</dt><dd>${esc(a.use)}</dd><dt>Status</dt><dd><span class="pill warn">Waiting for approval</span></dd></dl>
-    <div class="row"><button class="btn" data-act="tab" data-val="classes">See classes</button><button class="btn" data-act="tab" data-val="opengym">Open gym</button></div></section>`;
+    <div class="row"><button class="btn" data-act="tab" data-val="classes">See classes</button><button class="btn" data-act="tab" data-val="opengym">Gym access</button></div></section>`;
   const opt = v => `<option${f.use === v ? ' selected' : ''}>${v}</option>`;
   return `<section class="card stack narrow"><h2>Apply to rent court time</h2>
     ${a && a.status === 'declined' ? `<div class="notice">Your last application was not approved${a.ownerNote ? ': “' + esc(a.ownerNote) + '”' : ''}. You can apply again below.</div>` : ''}
@@ -780,15 +782,42 @@ function custClasses() {
       <dt>Spots</dt><dd>${left > 0 ? `${left} of ${c.capacity} left` : '<span class="pill bad">Full</span>'}</dd></dl>
       <div><button class="btn primary" data-act="coClass" data-id="${c.id}" ${left > 0 ? '' : 'disabled'}>Sign up</button></div></div>`; }).join('')}</div></section>`;
 }
+// Read-only day view of all four half courts. Shows only booked/free, never who booked.
+function custAvail() {
+  const t = TODAY(); if (!UI.av.date || UI.av.date < t) UI.av.date = t;
+  const date = UI.av.date, h = hoursOf(date), days = Array.from({ length: 14 }, (_, i) => addDays(t, i));
+  const nav = `<div class="calbar"><div class="row"><button class="btn sm" data-act="avDate" data-val="${addDays(date, -1)}" ${date <= t ? 'disabled' : ''} aria-label="Previous day">‹</button><span class="date">${fmtD(date, { weekday: 'long', month: 'short', day: 'numeric' })}</span><button class="btn sm" data-act="avDate" data-val="${addDays(date, 1)}" aria-label="Next day">›</button>${dateInp('UI.av.date')}</div></div>
+    <div class="dates">${days.map(d => `<button data-act="avDate" data-val="${d}" ${pressed(d === date)}>${fmtD(d, { weekday: 'short' })}<b>${parse(d).getDate()}</b>${fmtD(d, { month: 'short' })}</button>`).join('')}</div>`;
+  const cta = `<div class="row"><button class="btn primary" data-act="tab" data-val="book">Rent a court</button><button class="btn" data-act="tab" data-val="opengym">Gym access for private training</button></div>`;
+  if (!h) return `<section class="stack"><h2>Gym availability</h2>${nav}<p class="muted">The gym is closed on ${fmtD(date, { weekday: 'long' })}s.</p>${cta}</section>`;
+  const a = h[0] - h[0] % 30, n = Math.ceil((h[1] - a) / 30), nowM = date === t ? nowMin() : -1;
+  let g = '';
+  for (let r = 0; r < n; r++) { const m = a + r * 30, gone = m + 30 <= nowM;
+    g += `<div class="tl" style="grid-row:${r + 1};grid-column:1">${m % 60 ? '' : fmtTs(m)}</div>`;
+    for (let c = 0; c < 4; c++) g += `<div class="cell${gone || m < h[0] ? ' closed' : ''}${m % 60 ? '' : ' hr'}${c === 1 ? ' div' : ''}" style="grid-row:${r + 1};grid-column:${c + 2}"></div>`; }
+  for (const it of itemsOn(date)) {
+    const rs = Math.max(0, (it.start - a) / 30), re = Math.min(n, (it.end - a) / 30); if (re <= rs) continue;
+    const label = it.kind === 'class' ? it.label : it.kind === 'res' ? 'Booked' : 'Unavailable';
+    for (const [x, y] of runs(it.resources)) g += `<div class="item k-${it.kind}" style="grid-row:${Math.floor(rs) + 1}/${Math.ceil(re) + 1};grid-column:${x + 2}/${y + 3}"><b>${esc(label)}</b><span>${fmtTs(it.start)}–${fmtTs(it.end)}</span></div>`;
+  }
+  return `<section class="stack"><h2>Gym availability</h2>
+    <p class="muted" style="margin:0">Open ${fmtT(h[0])} – ${fmtT(h[1])}. White space is free. Each court has a north and a south half.</p>
+    ${nav}
+    <div class="legend"><span><i style="background:var(--surface);border:1px solid var(--line)"></i>Free</span><span><i style="background:var(--res)"></i>Booked</span><span><i style="background:var(--cls)"></i>Class</span><span><i style="background:var(--blk)"></i>Unavailable</span></div>
+    <div class="card" style="padding:0;overflow:hidden"><div class="calhead"><div></div>${RES.map(r => `<div>Court ${r.court}<small>${r.side}</small></div>`).join('')}</div>
+      <div class="cal pub" id="pcal" style="grid-template-rows:repeat(${n}, 26px)">${g}</div></div>
+    ${cta}</section>`;
+}
 function custOpenGym() {
   const g = UI.og;
   const form = w => `<div class="stack" style="gap:8px">${w === 'drop' ? `<label class="field"><span>Day</span>${dateInp('UI.og.date', false)}</label>` : ''}
-      ${g.which === w && g.err ? `<div class="err">${esc(g.err)}</div>` : ''}<div><button class="btn primary" data-act="coOpen" data-val="${w}">${w === 'mem' ? 'Start membership' : 'Buy a drop-in pass'}</button></div></div>`;
-  return `<section class="stack"><h2>Open gym</h2>
+      ${g.which === w && g.err ? `<div class="err">${esc(g.err)}</div>` : ''}<div><button class="btn primary" data-act="coOpen" data-val="${w}">${w === 'mem' ? 'Start membership' : 'Buy a day pass'}</button></div></div>`;
+  return `<section class="stack"><h2>Gym access for private training</h2>
+    <p class="muted" style="margin:0">Use the gym for your own private training sessions. Check <button class="linkbtn" data-act="tab" data-val="avail">Availability</button> for open times.</p>
     <div class="grid2"><div class="card stack"><h3>Monthly membership</h3><div class="stat"><b>${money(S.membership)}</b><span class="muted">per month, billed automatically</span></div>
-      <p style="margin:0">Unlimited open-gym visits. Cancel anytime; access runs to the end of the paid month.</p>${form('mem', S.membership)}</div>
-    <div class="card stack"><h3>Single-day drop-in</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of open gym</span></div>
-      <p style="margin:0">No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
+      <p style="margin:0">Gym access for private training any day we're open. Cancel anytime; access runs to the end of the paid month.</p>${form('mem', S.membership)}</div>
+    <div class="card stack"><h3>Day pass</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of gym access</span></div>
+      <p style="margin:0">One day of gym access for private training. No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
 }
 const onlineReady = kind => !!(kind === 'mem' ? (PAY.membership || PAY.balance) : PAY.balance);
 const payRef = (kind, id) => (kind === 'res' ? (find('reservations', id) || {}).code : kind.toUpperCase() + '-' + id.slice(-5).toUpperCase());
@@ -797,8 +826,8 @@ function myDues(u) {
   for (const r of S.reservations) if (r.customer.email.toLowerCase() === e && r.status === 'confirmed' && r.total - r.paid > 0.004)
     out.push({ kind: 'res', id: r.id, what: `Court rental: ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)}`, amt: r2(r.total - r.paid) });
   for (const g of S.regs) if (g.email.toLowerCase() === e && g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ kind: 'reg', id: g.id, what: `Class: ${c.name} (${g.name})`, amt: g.due }); }
-  for (const m of S.members) if (m.email.toLowerCase() === e && (m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, what: 'Open-gym membership', amt: m.owed });
-  for (const d of S.dropins) if (d.email.toLowerCase() === e && (d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, what: `Open-gym drop-in, ${fmtD(d.date)}`, amt: d.due });
+  for (const m of S.members) if (m.email.toLowerCase() === e && (m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, what: 'Gym-access membership', amt: m.owed });
+  for (const d of S.dropins) if (d.email.toLowerCase() === e && (d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, what: `Gym-access day pass, ${fmtD(d.date)}`, amt: d.due });
   return out.map(x => ({ ...x, ref: payRef(x.kind, x.id) }));
 }
 function myTxns(u) {
@@ -828,7 +857,7 @@ function custPay() {
     <div class="card stack"><h3>Pay at the front desk</h3><p style="margin:0">Cash or card. Show this screen or give your username.</p>
       <dl class="kv"><dt>Username</dt><dd><b>${esc(u.username)}</b></dd><dt>References</dt><dd>${esc(dues.map(d => d.ref).join(', '))}</dd><dt>Amount</dt><dd><b>${money(total)}</b></dd></dl></div>`;
   }
-  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Drop-in', refund: 'Refund', adjustment: 'Adjustment' };
+  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Day pass', refund: 'Refund', adjustment: 'Adjustment' };
   out += `<div class="card stack"><h3>Payment history</h3>${tx.length ? `<div class="tbl"><table><tr><th>Date</th><th>Description</th><th>Method</th><th class="num">Amount</th></tr>
     ${tx.map(t => `<tr><td class="small">${fmtD(t.at.slice(0, 10))}</td><td>${esc(t.desc)}</td><td class="small">${t.method === 'card' ? 'Card' : 'Front desk'}</td><td class="num" style="color:${t.amount < 0 ? 'var(--danger)' : 'inherit'}">${money(t.amount)}</td></tr>`).join('')}</table></div>
     <p class="small muted" style="margin:0">Need a receipt for your records? This list is your receipt; ask the front desk for a printed copy.</p>` : '<p class="muted" style="margin:0">No payments yet.</p>'}</div>`;
@@ -838,8 +867,8 @@ function custPolicies() {
   const sec = (h, items) => `<div class="card stack"><h3>${h}</h3><ul style="margin:0;padding-left:20px;line-height:1.6">${items.map(i => `<li>${i}</li>`).join('')}</ul></div>`;
   return `<section class="stack narrow"><h2>Policies</h2>
     <div class="notice">Draft for the owner to review before the site goes live. These are not yet StackLab's final terms.</div>
-    ${sec('Booking and payment', ['Court rentals are for approved customers. Classes and open gym are open to anyone with an account.', 'Bookings are confirmed when you check out. Payment is due before you play, online or at the front desk.', 'Prices shown at checkout include everything StackLab charges. Card payments are processed by Stripe; StackLab never stores card numbers.'])}
-    ${sec('Cancellations and refunds', ['<b>Court rentals:</b> cancel online at least 24 hours before your start time for a full refund. Inside 24 hours, the full price is due.', '<b>Classes:</b> full refund if you cancel before the first session. After the first session, no refund unless StackLab cancels the class.', '<b>Open-gym membership:</b> cancel anytime. Access continues to the end of the month you paid for; no partial-month refunds.', '<b>Drop-in passes:</b> refundable or movable to another day if you ask before that day.', 'If StackLab cancels anything (weather, maintenance, emergency), you get a full refund or a free reschedule.', 'Refunds go back to the original payment method within 5–10 business days.'])}
+    ${sec('Booking and payment', ['Court rentals are for approved customers. Classes and gym access for private training are open to anyone with an account.', 'Bookings are confirmed when you check out. Payment is due before you play, online or at the front desk.', 'Prices shown at checkout include everything StackLab charges. Card payments are processed by Stripe; StackLab never stores card numbers.'])}
+    ${sec('Cancellations and refunds', ['<b>Court rentals:</b> cancel online at least 24 hours before your start time for a full refund. Inside 24 hours, the full price is due.', '<b>Classes:</b> full refund if you cancel before the first session. After the first session, no refund unless StackLab cancels the class.', '<b>Gym-access membership:</b> cancel anytime. Access continues to the end of the month you paid for; no partial-month refunds.', '<b>Day passes:</b> refundable or movable to another day if you ask before that day.', 'If StackLab cancels anything (weather, maintenance, emergency), you get a full refund or a free reschedule.', 'Refunds go back to the original payment method within 5–10 business days.'])}
     ${sec('Gym rules', ['Clean, non-marking basketball shoes only.', 'No food, gum or drinks except water on the courts.', 'Players under 14 need an adult in the building.', 'Stay on the half or court you booked, and end on time.', 'Renters pay for damage they or their group cause.'])}
     ${sec('Liability waiver', ['Basketball has risks, including sprains, broken bones and other injuries. You take part voluntarily and accept those risks.', 'You release StackLab Tomball and its owners and staff from claims for injuries that happen during normal play, except those caused by gross negligence.', 'You confirm you are physically able to play. A parent or guardian signing up a child agrees to this for the child.', 'StackLab may take photos in the gym; ask the front desk if you do not want to be photographed.'])}
     ${sec('Contact us', ['Email <a href="mailto:info@stacklabtomball.com">info@stacklabtomball.com</a> with questions, changes or refund requests.'])}
@@ -875,7 +904,7 @@ function custMine() {
   if (rs.length) out += `<div><div class="lab">Court rentals</div><div class="tbl"><table><tr><th>When</th><th>Space</th><th>Code</th><th class="num">Price</th><th>Status</th></tr>${rs.map(r => `<tr><td>${fmtD(r.date)}<br>${fmtT(r.start)}–${fmtT(r.end)}</td><td>${resLabel(r.resources)}</td><td>${r.code}</td><td class="num">${money(r.total)}${r.status === 'confirmed' ? due(r2(r.total - r.paid)) : ''}</td><td>${r.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : r.date < t ? '<span class="pill gray">Past</span>' : `<span class="pill ok">Confirmed</span><br>${canSelfCancel(r) ? askBtn('cc' + r.id, 'Cancel', 'custCancel', `data-id="${r.id}"`, 'btn sm') : '<span class="small muted">Within 24 hrs: call the desk to change</span>'}`}</td></tr>`).join('')}</table></div></div>`;
   if (gs.length) out += `<div><div class="lab">Classes</div>${gs.map(g => { const c = S.classes.find(x => x.id === g.classId); return `<p style="margin:4px 0">${esc(g.name)}: <b>${esc(c.name)}</b>, ${classSchedule(c)} ${g.status !== 'active' || c.status === 'cancelled' ? '<span class="pill bad">Cancelled</span>' : '<span class="pill ok">Registered</span>'}${g.status === 'active' ? due(g.due || 0) : ''}</p>`; }).join('')}</div>`;
   if (ms.length) out += `<div><div class="lab">Membership</div>${ms.map(m => `<p style="margin:4px 0">${memberStatus(m).html}${due(m.owed || 0)}</p>`).join('')}</div>`;
-  if (dd.length) out += `<div><div class="lab">Drop-in passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}${due(d.due || 0)}</p>`).join('')}</div>`;
+  if (dd.length) out += `<div><div class="lab">Day passes</div>${dd.map(d => `<p style="margin:4px 0">${fmtD(d.date)} · ${money(d.price)}${due(d.due || 0)}</p>`).join('')}</div>`;
   return out + `</section>`;
 }
 
@@ -1058,7 +1087,7 @@ function ownerPricing() {
     <div class="stack"><div class="card stack"><h3>Check a day's prices</h3>${(UI.pdate = pd, '')}<label class="field"><span>Date</span>${dateInp('UI.pdate')}</label><div class="tbl">${prev}</div></div>
       <div class="card stack"><h3>Half-court adjustments</h3><p class="small muted" style="margin:0">Add or subtract dollars per hour for a specific half (for example, the half with the better hoops). Applies to half-court rentals only.</p>
         <div class="rates">${RES.map(r => `<label>${r.name}<input type="number" ${bind(`S.adj.${r.id}`, true)} data-num value="${S.adj[r.id]}"></label>`).join('')}</div></div>
-      <div class="card stack"><h3>Open gym</h3><div class="rates"><label>Drop-in $<input type="number" min="0" ${bind('S.dropIn', true)} data-num value="${S.dropIn}"></label><label>Membership $/month<input type="number" min="0" ${bind('S.membership', true)} data-num value="${S.membership}"></label></div>
+      <div class="card stack"><h3>Gym access for private training</h3><div class="rates"><label>Day pass $<input type="number" min="0" ${bind('S.dropIn', true)} data-num value="${S.dropIn}"></label><label>Membership $/month<input type="number" min="0" ${bind('S.membership', true)} data-num value="${S.membership}"></label></div>
         <p class="small muted" style="margin:0">A membership price change applies to new members; current members keep their rate.</p></div></div></div></div>`;
 }
 function ownerClasses() {
@@ -1078,7 +1107,7 @@ function ownerMembers() {
       <td>${m.status === 'active' ? `${st.key === 'due' ? `<button class="btn sm" data-act="billOne" data-id="${m.id}">Charge ${money(m.price)}</button> ` : ''}${askBtn('mc' + m.id, 'Cancel', 'memCancel', `data-id="${m.id}"`, 'btn sm danger')}` : `<button class="btn sm" data-act="memReact" data-id="${m.id}">Reactivate</button>`}</td></tr>`; }).join('')}</table></div>
     <div class="card stack"><h3>Add a member</h3><div class="fields">${txt('UI.nm.name', 'Name')}${txt('UI.nm.email', 'Email', 'email')}</div>${UI.nm.err ? `<div class="err">${esc(UI.nm.err)}</div>` : ''}
       <div><button class="btn" data-act="memAdd">Add and charge ${money(S.membership)}</button></div></div>
-    <h3>Drop-ins</h3><div class="card tbl" style="padding:0"><table><tr><th>Day</th><th>Name</th><th class="num">Paid</th></tr>${[...S.dropins].reverse().map(d => `<tr><td>${fmtD(d.date)}</td><td>${esc(d.name)}<br><span class="small muted">${esc(d.email)}</span></td><td class="num">${money(d.price)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None yet.</td></tr>'}</table></div></div>`;
+    <h3>Day passes</h3><div class="card tbl" style="padding:0"><table><tr><th>Day</th><th>Name</th><th class="num">Paid</th></tr>${[...S.dropins].reverse().map(d => `<tr><td>${fmtD(d.date)}</td><td>${esc(d.name)}<br><span class="small muted">${esc(d.email)}</span></td><td class="num">${money(d.price)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None yet.</td></tr>'}</table></div></div>`;
 }
 function ownerLogin() {
   const f = UI.olog;
@@ -1112,14 +1141,14 @@ function ownerCustomers() {
     <div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>Username</th><th>Joined</th><th>Court rentals</th><th></th></tr>
     ${users.map(u => `<tr><td>${esc(u.name)}<br><span class="small muted">${esc(u.email)} · ${esc(u.phone || '')}</span></td><td>${esc(u.username)}</td><td>${fmtD(u.createdAt.slice(0, 10))}</td><td>${accPill(u)}</td>
       <td><div class="row" style="gap:6px">${u.access === 'approved' ? askBtn('rev' + u.id, 'Revoke', 'revoke', `data-id="${u.id}"`, 'btn sm danger') : `<button class="btn sm" data-act="grant" data-id="${u.id}">Approve</button>`}${askBtn('pw' + u.id, LIVE ? 'Send reset email' : 'Reset password', 'resetPw', `data-id="${u.id}"`, 'btn sm')}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No accounts yet.</td></tr>'}</table></div>
-    <p class="small muted" style="margin:0">Approved customers can book court time online. Everyone with an account can sign up for classes and open gym.</p></div>`;
+    <p class="small muted" style="margin:0">Approved customers can book court time online. Everyone with an account can sign up for classes or buy gym access for private training.</p></div>`;
 }
 function duesList() {
   const out = [];
   for (const r of S.reservations) if (r.status === 'confirmed' && r.total - r.paid > 0.004) out.push({ kind: 'res', id: r.id, who: r.customer.name, what: `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, amt: r2(r.total - r.paid) });
   for (const g of S.regs) if (g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ kind: 'reg', id: g.id, who: g.name, what: c.name, amt: g.due }); }
-  for (const m of S.members) if ((m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, who: m.name, what: 'Open-gym membership', amt: m.owed });
-  for (const d of S.dropins) if ((d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, who: d.name, what: `Drop-in ${fmtD(d.date)}`, amt: d.due });
+  for (const m of S.members) if ((m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, who: m.name, what: 'Gym-access membership', amt: m.owed });
+  for (const d of S.dropins) if ((d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, who: d.name, what: `Day pass ${fmtD(d.date)}`, amt: d.due });
   return out;
 }
 function ownerPayments() {
@@ -1129,7 +1158,7 @@ function ownerPayments() {
     ${dues.map(d => `<tr><td>${esc(d.who)}</td><td>${esc(d.what)}</td><td class="num">${money(d.amt)}</td><td><button class="btn sm" data-act="payDue" data-kind="${d.kind}" data-id="${d.id}">Mark paid</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing due.</td></tr>'}</table></div>`;
   const sum = f => r2(S.txns.filter(f).reduce((a, x) => a + x.amount, 0));
   const list = [...S.txns].sort((a, b) => b.at.localeCompare(a.at));
-  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Drop-in', refund: 'Refund', adjustment: 'Adjustment' };
+  const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Day pass', refund: 'Refund', adjustment: 'Adjustment' };
   return `<div class="stack"><h2>Payments</h2>
     <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="card stat"><span class="muted small">Today (net)</span><b>${money(sum(x => x.at.slice(0, 10) === t))}</b></div>
       <div class="card stat"><span class="muted small">This month (net)</span><b>${money(sum(x => x.at.slice(0, 7) === mo))}</b></div>
@@ -1160,7 +1189,7 @@ function render() {
   const cust = UI.view === 'customer', ologin = UI.view === 'ownerlogin', u = me();
   const pending = S.apps.filter(a => a.status === 'pending').length;
   const nDue = u ? myDues(u).length : 0;
-  const ctabs = [['classes', 'Classes'], ['opengym', 'Open gym'], ['book', 'Rent a court'], ...(u ? [['pay', `Payments${nDue ? `<span class="badge">${nDue}</span>` : ''}`]] : []), ['account', u ? 'My account' : 'Log in']];
+  const ctabs = [['classes', 'Classes'], ['opengym', 'Gym access'], ['avail', 'Availability'], ['book', 'Rent a court'], ...(u ? [['pay', `Payments${nDue ? `<span class="badge">${nDue}</span>` : ''}`]] : []), ['account', u ? 'My account' : 'Log in']];
   const otabs = [['calendar', 'Calendar'], ['reservations', 'Reservations'], ['customers', `Customers${pending ? `<span class="badge">${pending}</span>` : ''}`], ['pricing', 'Pricing'], ['classes', 'Classes'], ['members', 'Memberships'], ['payments', 'Payments'], ['settings', 'Settings']];
   const tabs = ologin ? '' : (cust ? ctabs : otabs).map(([k, l]) => `<button data-act="tab" data-val="${k}" ${(cust ? UI.ctab : UI.otab) === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const who = ologin ? '' : cust
@@ -1174,7 +1203,7 @@ function render() {
     if (UI.ctab === 'account' && !u) { UI.ctab = 'login'; UI.after = 'account'; }
     if (UI.ctab === 'checkout' && !u) UI.ctab = 'login';
     if (UI.ctab === 'pay' && !u) { UI.ctab = 'login'; UI.after = 'pay'; }
-    body = (UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : '') + { newpw: custNewPw, pay: custPay, policies: custPolicies, book: custBook, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
+    body = (UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : '') + { newpw: custNewPw, pay: custPay, policies: custPolicies, book: custBook, avail: custAvail, classes: custClasses, opengym: custOpenGym, account: custMine, login: custLogin, signup: custSignup, checkout: custCheckout }[UI.ctab]();
   } else {
     const main = { calendar: ownerCalendar, reservations: ownerReservations, customers: ownerCustomers, pricing: ownerPricing, classes: ownerClasses, members: ownerMembers, payments: ownerPayments, settings: ownerSettings }[UI.otab]();
     const p = UI.panel;
@@ -1297,8 +1326,8 @@ const ACT = {
     const u = me(); if (!u) { UI.after = 'opengym'; UI.ctab = 'signup'; return; }
     if (w === 'drop' && (!g.date || g.date < TODAY())) return void (g.err = 'Pick today or a later day.');
     const price = w === 'mem' ? S.membership : S.dropIn;
-    UI.co = { kind: w, back: 'opengym', date: g.date, title: w === 'mem' ? 'Open-gym membership' : 'Open-gym drop-in',
-      lines: [{ label: w === 'mem' ? 'Monthly membership' : 'Drop-in pass', rule: w === 'mem' ? 'first month' : fmtD(g.date), rate: price, hours: 1, amount: price }], total: price,
+    UI.co = { kind: w, back: 'opengym', date: g.date, title: w === 'mem' ? 'Gym-access membership' : 'Gym-access day pass',
+      lines: [{ label: w === 'mem' ? 'Monthly membership' : 'Day pass', rule: w === 'mem' ? 'first month' : fmtD(g.date), rate: price, hours: 1, amount: price }], total: price,
       rows: w === 'mem' ? [['Starts', fmtD(TODAY(), { month: 'long', day: 'numeric' })], ['Renews', 'Monthly, cancel anytime']] : [['Day', fmtD(g.date, { weekday: 'long', month: 'long', day: 'numeric' })]],
       phone: u.phone || '', err: '', done: '' };
     UI.ctab = 'checkout'; window.scrollTo(0, 0);
@@ -1328,13 +1357,13 @@ const ACT = {
     } else if (o.kind === 'mem') {
       const t = TODAY(), m = { id: uid('m'), userId: u.id, name: u.name, email: u.email, start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '', owed: S.membership };
       S.members.push(m);
-      notify(u.email, 'Welcome to StackLab open gym', `Your membership is active. Pay the first ${money(m.price)} at the front desk. Renews ${fmtD(m.nextBill)}.`);
-      o.done = `Your open-gym membership is active. Next renewal ${fmtD(m.nextBill)}.`;
+      notify(u.email, 'Welcome to StackLab gym access', `Your membership is active. Pay the first ${money(m.price)} at the front desk. Renews ${fmtD(m.nextBill)}.`);
+      o.done = `Your gym-access membership is active. Next renewal ${fmtD(m.nextBill)}.`;
     } else {
       const d = { id: uid('d'), userId: u.id, name: u.name, email: u.email, date: o.date, price: S.dropIn, due: S.dropIn };
       S.dropins.push(d);
-      notify(u.email, 'Open-gym pass', `Drop-in for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. ${money(d.price)} due at the front desk.`);
-      o.done = `Drop-in pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
+      notify(u.email, 'Gym-access day pass', `Day pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. ${money(d.price)} due at the front desk.`);
+      o.done = `Day pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
     }
     if (o.kind === 'class' && S._counts) S._counts[o.classId] = (S._counts[o.classId] || 0) + 1;
     if (LIVE) {
@@ -1441,12 +1470,12 @@ const ACT = {
       if (error) { f.err = /registered|exists/i.test(error.message) ? 'An account with that email already exists. Log in instead.' : error.message; return; }
       if (!data.session) { UI.auth = blankAuth(); UI.notice = `Almost done: open the email we sent to ${email} and click the link to confirm, then log in.`; UI.ctab = 'login'; return; }
       await refreshSession(); await loadRemote();
-      notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`); save();
+      notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes or buy gym access for private training anytime. To rent court time, submit a short application.`); save();
       UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; window.scrollTo(0, 0);
     })();
     const salt = newSalt(), u = { id: uid('u'), name, username: user, email, phone: f.phone.trim(), salt, hash: hashPw(f.pw, salt), createdAt: nowISO(), access: 'none', waiverAt: nowISO() };
     S.users.push(u); SESSION = { kind: 'customer', userId: u.id }; saveSession();
-    notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes and open gym anytime. To rent court time, submit a short application.`);
+    notify(email, 'Welcome to StackLab Tomball', `Your account ${user} is ready. Sign up for classes or buy gym access for private training anytime. To rent court time, submit a short application.`);
     UI.auth = blankAuth(); UI.ctab = UI.after || 'account'; UI.after = ''; save(); window.scrollTo(0, 0);
   },
   logout() { SESSION = null; saveSession(); if (LIVE) { READY = false; DB.auth.signOut().then(loadRemote).then(() => { READY = true; render(); }, () => { READY = true; render(); }); } UI.view = 'customer'; UI.ctab = 'classes'; UI.co = null; UI.panel = null; window.scrollTo(0, 0); },
@@ -1481,7 +1510,7 @@ const ACT = {
   decline(a) {
     const ap = find('apps', a.dataset.id), u = S.users.find(x => x.id === ap.userId), note = ((UI.dnote || {})[ap.id] || '').trim();
     ap.status = 'declined'; ap.decidedAt = nowISO(); ap.ownerNote = note; u.access = 'declined';
-    notify(u.email, 'About your court-rental application', `We are not able to approve court rentals for your account right now.${note ? ' ' + note : ''} Classes and open gym are still open to you.`);
+    notify(u.email, 'About your court-rental application', `We are not able to approve court rentals for your account right now.${note ? ' ' + note : ''} Classes and gym access for private training are still open to you.`);
     UI.flash = `Declined ${u.name}'s application.`; UI.confirm = null; save();
   },
   grant(a) {
@@ -1495,11 +1524,12 @@ const ACT = {
     const k = a.dataset.kind, id = a.dataset.id;
     if (k === 'res') return ACT.markPaid({ dataset: { id } });
     if (k === 'reg') { const g = find('regs', id), c = find('classes', g.classId); charge('class', `${c.name}: ${g.name}`, g.due, 'cash', { kind: 'reg', id }); g.paid = r2((g.paid || 0) + g.due); UI.flash = `Recorded ${money(g.due)} from ${g.name}.`; g.due = 0; }
-    if (k === 'mem') { const m = find('members', id); charge('membership', `Open-gym membership: ${m.name}`, m.owed, 'cash', { kind: 'mem', id }); UI.flash = `Recorded ${money(m.owed)} from ${m.name}.`; m.owed = 0; }
-    if (k === 'drop') { const d = find('dropins', id); charge('dropin', `Open-gym drop-in: ${d.name} (${fmtD(d.date)})`, d.due, 'cash', { kind: 'drop', id }); UI.flash = `Recorded ${money(d.due)} from ${d.name}.`; d.due = 0; }
+    if (k === 'mem') { const m = find('members', id); charge('membership', `Gym-access membership: ${m.name}`, m.owed, 'cash', { kind: 'mem', id }); UI.flash = `Recorded ${money(m.owed)} from ${m.name}.`; m.owed = 0; }
+    if (k === 'drop') { const d = find('dropins', id); charge('dropin', `Gym-access day pass: ${d.name} (${fmtD(d.date)})`, d.due, 'cash', { kind: 'drop', id }); UI.flash = `Recorded ${money(d.due)} from ${d.name}.`; d.due = 0; }
     save();
   },
   // owner calendar
+  avDate(a) { UI.av.date = a.dataset.val; },
   odate(a) { UI.oc.date = a.dataset.val; UI.panel = null; UI.oc.sel = null; },
   openItem(a) { openItem(a.dataset.kind, a.dataset.id, UI.oc.date); UI.confirm = null; },
   closePanel() { UI.panel = null; UI.oc.sel = null; UI.confirm = null; },
@@ -1602,15 +1632,15 @@ const ACT = {
     S.regs.filter(g => g.classId === c.id && g.status === 'active').forEach(g => { const amt = refund ? refundRef('reg', g.id, g.paid || 0, 'class cancelled') : 0; tot += amt; notify(g.email, `${c.name} cancelled`, `${c.name} has been cancelled. ${amt ? 'Refund ' + money(amt) + '.' : ''}`); });
     UI.flash = `Cancelled ${c.name}${tot ? ` and refunded ${money(tot)}` : ''}. Its court time is free again.`; UI.confirm = null; save(); },
   // memberships
-  runBilling() { let n = 0, tot = 0; for (const m of S.members) if (m.status === 'active' && m.nextBill <= TODAY()) { charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); n++; tot += m.price; }
+  runBilling() { let n = 0, tot = 0; for (const m of S.members) if (m.status === 'active' && m.nextBill <= TODAY()) { charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); n++; tot += m.price; }
     UI.flash = `Billed ${n} member${n === 1 ? '' : 's'}, ${money(tot)}.`; save(); },
-  billOne(a) { const m = find('members', a.dataset.id); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); UI.flash = `Charged ${m.name} ${money(m.price)}.`; save(); },
-  memCancel(a) { const m = find('members', a.dataset.id); m.status = 'cancelled'; m.cancelledAt = TODAY(); notify(m.email, 'Membership cancelled', `Your open-gym membership is cancelled. Access continues until ${fmtD(m.nextBill)}.`); UI.confirm = null; save(); },
+  billOne(a) { const m = find('members', a.dataset.id); charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); UI.flash = `Charged ${m.name} ${money(m.price)}.`; save(); },
+  memCancel(a) { const m = find('members', a.dataset.id); m.status = 'cancelled'; m.cancelledAt = TODAY(); notify(m.email, 'Membership cancelled', `Your gym-access membership is cancelled. Access continues until ${fmtD(m.nextBill)}.`); UI.confirm = null; save(); },
   memReact(a) { const m = find('members', a.dataset.id), t = TODAY(); m.status = 'active';
-    if (m.nextBill <= t) { charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(t, 1); } UI.flash = `${m.name} is active again.`; save(); },
+    if (m.nextBill <= t) { charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(t, 1); } UI.flash = `${m.name} is active again.`; save(); },
   memAdd() { const f = UI.nm; f.err = ''; if (!f.name.trim()) return void (f.err = 'Enter a name.'); if (!validEmail(f.email)) return void (f.err = 'Enter a valid email.');
     const t = TODAY(), m = { id: uid('m'), name: f.name.trim(), email: f.email.trim(), start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '' };
-    S.members.push(m); charge('membership', `Open-gym membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); UI.nm = { name: '', email: '', err: '' }; UI.flash = `Added ${m.name}.`; save(); },
+    S.members.push(m); charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); UI.nm = { name: '', email: '', err: '' }; UI.flash = `Added ${m.name}.`; save(); },
   // payments + settings
   refundTx(a) { const x = S.txns.find(t => t.id === a.dataset.id); const amt = refundTxn(x, x.amount, 'owner refund'); UI.flash = `Refunded ${money(amt)}.`; UI.confirm = null; save(); },
   hoursToggle(a) { const i = +a.dataset.i; S.hours[i] = S.hours[i] ? null : [360, 1380]; save(); },
@@ -1645,7 +1675,9 @@ UI.cs.date = TODAY(); UI.oc.date = TODAY(); UI.og.date = TODAY();
 function routeHash() {
   const h = (location.hash || '').slice(1);
   if (h === 'owner') { UI.view = 'owner'; return; }
-  if (['classes', 'opengym', 'book', 'account', 'login', 'signup', 'pay', 'policies'].includes(h)) { UI.view = 'customer'; UI.ctab = h; }
+  if (h === 'availability') { UI.view = 'customer'; UI.ctab = 'avail'; return; }
+  if (h === 'access') { UI.view = 'customer'; UI.ctab = 'opengym'; return; }
+  if (['classes', 'opengym', 'avail', 'book', 'account', 'login', 'signup', 'pay', 'policies'].includes(h)) { UI.view = 'customer'; UI.ctab = h; }
 }
 try { routeHash(); window.addEventListener('hashchange', () => { routeHash(); render(); window.scrollTo(0, 0); }); } catch (e) {}
 render();
