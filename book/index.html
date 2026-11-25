@@ -240,12 +240,25 @@ const newSalt = () => Array.from({ length: 8 }, () => Math.floor(Math.random() *
 const OWNER = { username: 'stacklab', salt: '6a34daba6bdc9b76', hash: '8f8f0c78a237bd8fae9269463ef899a2252887af37b1db0e37e39fceff9a2108' };
 
 /* ===================== state ===================== */
-// Online payments. When StackLab has a Stripe account, create Payment Links in the Stripe Dashboard
-// (Payment Links -> New) and paste the URLs here. 'balance' must be a link set to
-// "Customers choose what to pay" so it works for any amount; 'membership' should be a monthly subscription link.
-// Leave a value blank and that option shows "pay at the front desk" instead.
-const PAY = { balance: '', membership: '' };
-const payLink = (url, u, ref) => url ? `${url}${url.includes('?') ? '&' : '?'}prefilled_email=${encodeURIComponent(u.email)}&client_reference_id=${encodeURIComponent(ref)}` : '';
+// Online payments run through Stripe. The secret key lives only in the 'stripe-api' Supabase Edge
+// Function, which reads every amount from the database; 'stripe-webhook' marks items paid when Stripe
+// confirms the money. Set STRIPE_ON to false to fall back to "pay at the front desk" everywhere.
+const STRIPE_ON = true;
+async function stripeGo(action, body) {
+  const { data, error } = await DB.functions.invoke('stripe-api', { body: { action, ...(body || {}) } });
+  if (error) {
+    let msg = 'Online payment is unavailable right now. Please try again, or pay at the front desk.';
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  return data;
+}
+async function stripeAct(action, body) {
+  UI.flash = 'Opening Stripe\'s secure page…'; render();
+  try { const r = await stripeGo(action, body); location.href = r.url; }
+  catch (e) { UI.flash = e.message; }
+}
+const STRIPE_RET = (() => { try { const v = new URLSearchParams(location.search).get('stripe'); if (v) history.replaceState(null, '', location.pathname + location.hash); return v; } catch (e) { return null; } })();
 // Shared database (Supabase). With url blank the site runs as a single-browser demo.
 const SB = { url: 'https://molsqfcnyybjozljiwqn.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vbHNxZmNueXliam96bGppd3FuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0NDg3NTYsImV4cCI6MjExMDAyNDc1Nn0.JHlmtsVKgyOkaW_5Bsni5CJyWzxAXclbcqlRKyJs1h8' };
 const RECOVERY = /type=recovery/.test(location.hash);
@@ -371,6 +384,13 @@ async function startLive() {
   try { await refreshSession(); await loadRemote(); READY = true; }
   catch (e) { console.error(e); UI.fatal = 'Could not load the booking system. Please reload the page in a minute.'; }
   if (RECOVERY) { UI.view = 'customer'; UI.ctab = 'newpw'; }
+  if (STRIPE_RET && READY) {
+    UI.view = 'customer'; UI.ctab = 'pay';
+    UI.flash = { paid: 'Thank you, your payment went through. It will show as paid here within a minute.',
+                 member: 'Thank you, automatic monthly payments are on for your membership.',
+                 cancelled: 'Payment cancelled. Nothing was charged.' }[STRIPE_RET] || '';
+    if (STRIPE_RET !== 'cancelled') [4000, 15000].forEach(t => setTimeout(() => flushQ.then(loadRemote).then(render).catch(() => {}), t));
+  }
   render();
   setInterval(() => {
     const el = document.activeElement, typing = el && /INPUT|TEXTAREA|SELECT/.test(el.tagName);
@@ -819,7 +839,7 @@ function custOpenGym() {
     <div class="card stack"><h3>Day pass</h3><div class="stat"><b>${money(S.dropIn)}</b><span class="muted">one day of gym access</span></div>
       <p style="margin:0">One day of gym access for private training. No membership needed. Show your confirmation at the front desk.</p>${form('drop', S.dropIn)}</div></div></section>`;
 }
-const onlineReady = kind => !!(kind === 'mem' ? (PAY.membership || PAY.balance) : PAY.balance);
+const onlineReady = kind => STRIPE_ON && LIVE;
 const payRef = (kind, id) => (kind === 'res' ? (find('reservations', id) || {}).code : kind.toUpperCase() + '-' + id.slice(-5).toUpperCase());
 function myDues(u) {
   const e = u.email.trim().toLowerCase(), out = [];
@@ -849,14 +869,24 @@ function custPay() {
     out += `<div class="card stack"><h3>Balance due</h3><div class="tbl"><table><tr><th>For</th><th>Ref</th><th class="num">Amount</th></tr>
       ${dues.map(d => `<tr><td>${esc(d.what)}</td><td class="small" style="white-space:nowrap">${esc(d.ref)}</td><td class="num">${money(d.amt)}</td></tr>`).join('')}
       <tr><td colspan="2"><b>Total due</b></td><td class="num"><b>${money(total)}</b></td></tr></table></div></div>
-    <div class="card stack"><h3>Pay online</h3>${PAY.balance
-      ? `<p style="margin:0">Pay ${money(total)} by card, Apple Pay or Google Pay on Stripe's secure page. Enter <b>${money(total)}</b> as the amount. Your reference is filled in for you.</p>
-        <div><a class="btn primary" href="${esc(payLink(PAY.balance, u, refAll))}" target="_blank" rel="noopener">Pay ${money(total)} securely ↗</a></div>
-        <p class="small muted" style="margin:0">Payments show here as paid once the front desk matches them, usually within one business day.</p>`
+    <div class="card stack"><h3>Pay online</h3>${onlineReady() ? (() => {
+        const one = dues.filter(d => d.kind !== 'mem'), oneTot = r2(one.reduce((a, d) => a + d.amt, 0));
+        const mems = dues.filter(d => d.kind === 'mem' && !(S.members.find(m => m.id === d.id) || {}).autopay);
+        return `${one.length ? `<p style="margin:0">Pay ${money(oneTot)} by card, Apple Pay or Google Pay on Stripe's secure page.</p>
+          <div><button class="btn primary" data-act="stripePay">Pay ${money(oneTot)} securely</button></div>` : ''}
+          ${mems.map(d => `<p style="margin:0">Membership: pay ${money(d.amt)} now and turn on automatic monthly payments. Cancel anytime.</p>
+          <div><button class="btn primary" data-act="stripeMem" data-id="${d.id}">Pay ${money(d.amt)} and turn on autopay</button></div>`).join('')}
+          <p class="small muted" style="margin:0">Payments show here as paid within a minute. StackLab never sees your card number.</p>`; })()
       : `<div class="notice">Online card payment isn't switched on yet. Please pay at the front desk for now.</div>`}</div>
     <div class="card stack"><h3>Pay at the front desk</h3><p style="margin:0">Cash or card. Show this screen or give your username.</p>
       <dl class="kv"><dt>Username</dt><dd><b>${esc(u.username)}</b></dd><dt>References</dt><dd>${esc(dues.map(d => d.ref).join(', '))}</dd><dt>Amount</dt><dd><b>${money(total)}</b></dd></dl></div>`;
   }
+  const myMems = S.members.filter(m => m.email.toLowerCase() === u.email.trim().toLowerCase() && m.status === 'active');
+  if (onlineReady() && myMems.some(m => m.autopay || !((m.owed || 0) > 0))) out += `<div class="card stack"><h3>Membership autopay</h3>${myMems.map(m => m.autopay
+      ? `<p style="margin:0"><span class="pill ok">Autopay on</span> ${money(m.price)} is charged to your card each month. Next charge ${fmtD(m.nextBill)}.</p>`
+      : (m.owed || 0) > 0 ? '' : `<p style="margin:0">Pay automatically each month instead of at the desk. Your first card charge is on ${fmtD(m.nextBill)}.</p>
+        <div><button class="btn" data-act="stripeMem" data-id="${m.id}">Turn on autopay</button></div>`).join('')}
+      ${myMems.some(m => m.autopay) ? `<div><button class="btn" data-act="stripePortal">Update card, see receipts or cancel</button></div>` : ''}</div>`;
   const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Day pass', refund: 'Refund', adjustment: 'Adjustment' };
   out += `<div class="card stack"><h3>Payment history</h3>${tx.length ? `<div class="tbl"><table><tr><th>Date</th><th>Description</th><th>Method</th><th class="num">Amount</th></tr>
     ${tx.map(t => `<tr><td class="small">${fmtD(t.at.slice(0, 10))}</td><td>${esc(t.desc)}</td><td class="small">${t.method === 'card' ? 'Card' : 'Front desk'}</td><td class="num" style="color:${t.amount < 0 ? 'var(--danger)' : 'inherit'}">${money(t.amount)}</td></tr>`).join('')}</table></div>
@@ -1099,12 +1129,12 @@ function ownerClasses() {
       ${UI.oclass === c.id ? `<div class="tbl"><table><tr><th>Player</th><th>Contact</th><th class="num">Paid</th><th></th></tr>${regs.map(g => `<tr><td>${esc(g.name)}</td><td class="small">${esc(g.email)}<br>${esc(g.phone || '')}</td><td class="num">${money(g.paid || 0)}</td><td>${askBtn('rr' + g.id, 'Remove + refund', 'removeReg', `data-id="${g.id}" data-val="refund"`, 'btn sm danger')} ${askBtn('rn' + g.id, 'Remove', 'removeReg', `data-id="${g.id}" data-val="none"`, 'btn sm')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nobody registered yet.</td></tr>'}</table></div>` : ''}</div>`; }).join('')}</div>`;
 }
 function ownerMembers() {
-  const due = S.members.filter(m => m.status === 'active' && m.nextBill <= TODAY());
+  const due = S.members.filter(m => m.status === 'active' && !m.autopay && m.nextBill <= TODAY());
   return `<div class="stack"><div class="calbar"><h2>Memberships</h2><button class="btn primary" data-act="runBilling" ${due.length ? '' : 'disabled'}>Bill ${due.length} due member${due.length === 1 ? '' : 's'} now</button></div>
-    <p class="muted small" style="margin:0">Members are billed every month on their start date. In the live site Stripe runs the billing on its own; this button stands in for that.</p>
+    <p class="muted small" style="margin:0">Members on autopay are charged by Stripe each month automatically. This button records the monthly charge for members who pay at the front desk.</p>
     <div class="card tbl" style="padding:0"><table><tr><th>Member</th><th>Since</th><th class="num">Rate</th><th>Status</th><th></th></tr>
     ${S.members.map(m => { const st = memberStatus(m); return `<tr><td>${esc(m.name)}<br><span class="small muted">${esc(m.email)}</span></td><td>${fmtD(m.start)}</td><td class="num">${money(m.price)}/mo</td><td>${st.html}</td>
-      <td>${m.status === 'active' ? `${st.key === 'due' ? `<button class="btn sm" data-act="billOne" data-id="${m.id}">Charge ${money(m.price)}</button> ` : ''}${askBtn('mc' + m.id, 'Cancel', 'memCancel', `data-id="${m.id}"`, 'btn sm danger')}` : `<button class="btn sm" data-act="memReact" data-id="${m.id}">Reactivate</button>`}</td></tr>`; }).join('')}</table></div>
+      <td>${m.status === 'active' ? `${m.autopay ? '<span class="pill ok">Autopay</span> ' : ''}${st.key === 'due' && !m.autopay ? `<button class="btn sm" data-act="billOne" data-id="${m.id}">Charge ${money(m.price)}</button> ` : ''}${askBtn('mc' + m.id, 'Cancel', 'memCancel', `data-id="${m.id}"`, 'btn sm danger')}` : `<button class="btn sm" data-act="memReact" data-id="${m.id}">Reactivate</button>`}</td></tr>`; }).join('')}</table></div>
     <div class="card stack"><h3>Add a member</h3><div class="fields">${txt('UI.nm.name', 'Name')}${txt('UI.nm.email', 'Email', 'email')}</div>${UI.nm.err ? `<div class="err">${esc(UI.nm.err)}</div>` : ''}
       <div><button class="btn" data-act="memAdd">Add and charge ${money(S.membership)}</button></div></div>
     <h3>Day passes</h3><div class="card tbl" style="padding:0"><table><tr><th>Day</th><th>Name</th><th class="num">Paid</th></tr>${[...S.dropins].reverse().map(d => `<tr><td>${fmtD(d.date)}</td><td>${esc(d.name)}<br><span class="small muted">${esc(d.email)}</span></td><td class="num">${money(d.price)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">None yet.</td></tr>'}</table></div></div>`;
@@ -1145,17 +1175,19 @@ function ownerCustomers() {
 }
 function duesList() {
   const out = [];
-  for (const r of S.reservations) if (r.status === 'confirmed' && r.total - r.paid > 0.004) out.push({ kind: 'res', id: r.id, who: r.customer.name, what: `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, amt: r2(r.total - r.paid) });
-  for (const g of S.regs) if (g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ kind: 'reg', id: g.id, who: g.name, what: c.name, amt: g.due }); }
-  for (const m of S.members) if ((m.owed || 0) > 0) out.push({ kind: 'mem', id: m.id, who: m.name, what: 'Gym-access membership', amt: m.owed });
-  for (const d of S.dropins) if ((d.due || 0) > 0) out.push({ kind: 'drop', id: d.id, who: d.name, what: `Day pass ${fmtD(d.date)}`, amt: d.due });
+  for (const r of S.reservations) if (r.status === 'confirmed' && r.total - r.paid > 0.004) out.push({ inv: r.invoice, kind: 'res', id: r.id, who: r.customer.name, what: `${r.code} ${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}`, amt: r2(r.total - r.paid) });
+  for (const g of S.regs) if (g.status === 'active' && (g.due || 0) > 0) { const c = S.classes.find(x => x.id === g.classId); out.push({ inv: g.invoice, kind: 'reg', id: g.id, who: g.name, what: c.name, amt: g.due }); }
+  for (const m of S.members) if ((m.owed || 0) > 0) out.push({ inv: m.invoice, autopay: m.autopay, kind: 'mem', id: m.id, who: m.name, what: 'Gym-access membership' + (m.autopay ? ' (autopay)' : ''), amt: m.owed });
+  for (const d of S.dropins) if ((d.due || 0) > 0) out.push({ inv: d.invoice, kind: 'drop', id: d.id, who: d.name, what: `Day pass ${fmtD(d.date)}`, amt: d.due });
   return out;
 }
 function ownerPayments() {
   const t = TODAY(), mo = t.slice(0, 7);
   const dues = duesList();
-  const dueHTML = `<h3>Waiting for payment at the desk</h3><div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>For</th><th class="num">Due</th><th></th></tr>
-    ${dues.map(d => `<tr><td>${esc(d.who)}</td><td>${esc(d.what)}</td><td class="num">${money(d.amt)}</td><td><button class="btn sm" data-act="payDue" data-kind="${d.kind}" data-id="${d.id}">Mark paid</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing due.</td></tr>'}</table></div>`;
+  const dueHTML = `<h3>Waiting for payment</h3><div class="card tbl" style="padding:0"><table><tr><th>Customer</th><th>For</th><th class="num">Due</th><th></th></tr>
+    ${dues.map(d => `<tr><td>${esc(d.who)}</td><td>${esc(d.what)}</td><td class="num">${money(d.amt)}</td><td><div class="row" style="gap:6px"><button class="btn sm" data-act="payDue" data-kind="${d.kind}" data-id="${d.id}">Mark paid</button>${!onlineReady() || d.autopay ? '' : d.inv && d.inv.status === 'sent'
+      ? `<a class="btn sm" href="${esc(d.inv.url)}" target="_blank" rel="noopener">Invoice ${esc(d.inv.number || '')} sent ↗</a>`
+      : `<button class="btn sm" data-act="stripeInvoice" data-kind="${d.kind}" data-id="${d.id}">Email invoice</button>`}</div></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing due.</td></tr>'}</table></div>`;
   const sum = f => r2(S.txns.filter(f).reduce((a, x) => a + x.amount, 0));
   const list = [...S.txns].sort((a, b) => b.at.localeCompare(a.at));
   const TL = { rental: 'Court rental', class: 'Class', membership: 'Membership', dropin: 'Day pass', refund: 'Refund', adjustment: 'Adjustment' };
@@ -1211,7 +1243,7 @@ function render() {
     body = `${UI.flash ? `<div class="flash" style="margin-bottom:12px"><span>${esc(UI.flash)}</span><button class="btn sm" data-act="unflash">OK</button></div>` : ''}<div class="owner${p ? ' has-panel' : ''}"><div style="min-width:0">${main}</div>${panel}</div>`;
   }
   app.innerHTML = `<div class="demo"><div class="wrap"><b>${LIVE ? 'Online booking is new' : 'Preview: online booking is not live yet'}</b>
-      <span>${LIVE ? 'Bookings are real and held for you. Card payment online is coming soon, so please pay at the front desk.' : 'Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.'}</span></div></div>
+      <span>${LIVE ? 'Bookings are real and held for you. Pay online by card, Apple Pay or Google Pay, or at the front desk.' : 'Nothing booked here is reserved and no card is charged. Accounts and bookings save only in this browser.'}</span></div></div>
     <header class="top"><div class="wrap"><div class="brand"><h1><a href="/" style="color:inherit;text-decoration:none" title="StackLab home">StackLab Tomball</a></h1><p>${cust ? 'Indoor basketball · 2 full courts · 18618 FM 2920, Tomball, TX' : 'Owner admin'}</p></div>${who}<nav class="tabs" style="flex-basis:100%">${tabs}</nav></div></header>
     <main class="wrap">${body}
       ${cust ? `<footer class="foot"><span><a href="/" style="color:inherit">← StackLab home</a> · 18618 FM 2920, Tomball, TX · <a href="mailto:info@stacklabtomball.com" style="color:inherit">info@stacklabtomball.com</a></span><span><button class="linkbtn" data-act="tab" data-val="policies">Policies &amp; waiver</button> · <button class="linkbtn" data-act="view" data-val="owner">Owner login</button></span></footer>` : ''}</main>`;
@@ -1337,12 +1369,13 @@ const ACT = {
     if (!u) { UI.ctab = 'login'; return; }
     if (o.phone && o.phone.trim() !== u.phone) u.phone = o.phone.trim();
     const cust = { name: u.name, email: u.email, phone: u.phone || '' };
+    let pr = null;
     if (o.kind === 'res') {
       if (u.access !== 'approved') return void (o.err = 'Your account is not approved for court rentals yet.');
       const c = conflict(o.date, o.set, o.start, o.end);
       if (c || (o.date === TODAY() && o.start <= nowMin())) return void (o.err = 'Someone just booked that time. Go back and pick another start time.');
       const r = createReservation({ date: o.date, resources: o.set, start: o.start, end: o.end, customer: cust, total: o.total, lines: o.lines, method: 'unpaid', by: 'customer' });
-      r.userId = u.id;
+      r.userId = u.id; pr = { kind: 'res', id: r.id };
       notify(u.email, `Booking confirmed: ${r.code}`, `${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}. ${money(r.total)} due at the front desk. StackLab Tomball, 18618 FM 2920.`);
       o.done = `Booking ${r.code}: ${resLabel(r.resources)}, ${fmtD(r.date, { weekday: 'long', month: 'long', day: 'numeric' })}, ${fmtT(r.start)}–${fmtT(r.end)}.`;
       UI.cs.start = null;
@@ -1351,33 +1384,45 @@ const ACT = {
       if (!(o.player || '').trim()) return void (o.err = "Enter the player's name.");
       if (c.status !== 'active' || enrolled(c) >= c.capacity) return void (o.err = 'This class just filled up.');
       const g = { id: uid('g'), classId: c.id, userId: u.id, name: o.player.trim(), email: u.email, phone: u.phone || '', status: 'active', paid: 0, due: c.price, at: nowISO() };
-      S.regs.push(g);
+      S.regs.push(g); pr = { kind: 'reg', id: g.id };
       notify(u.email, `Registered: ${c.name}`, `${g.name} is registered. ${classSchedule(c)}. ${money(c.price)} due at the front desk.`);
       o.done = `${g.name} is registered for ${c.name}.`;
     } else if (o.kind === 'mem') {
       const t = TODAY(), m = { id: uid('m'), userId: u.id, name: u.name, email: u.email, start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '', owed: S.membership };
-      S.members.push(m);
+      S.members.push(m); pr = { kind: 'mem', id: m.id };
       notify(u.email, 'Welcome to StackLab gym access', `Your membership is active. Pay the first ${money(m.price)} at the front desk. Renews ${fmtD(m.nextBill)}.`);
       o.done = `Your gym-access membership is active. Next renewal ${fmtD(m.nextBill)}.`;
     } else {
       const d = { id: uid('d'), userId: u.id, name: u.name, email: u.email, date: o.date, price: S.dropIn, due: S.dropIn };
-      S.dropins.push(d);
+      S.dropins.push(d); pr = { kind: 'drop', id: d.id };
       notify(u.email, 'Gym-access day pass', `Day pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}. ${money(d.price)} due at the front desk.`);
       o.done = `Day pass for ${fmtD(d.date, { weekday: 'long', month: 'long', day: 'numeric' })}.`;
     }
     if (o.kind === 'class' && S._counts) S._counts[o.classId] = (S._counts[o.classId] || 0) + 1;
     if (LIVE) {
-      const w = UI.paym === 'online' && onlineReady(o.kind) ? window.open('about:blank', '_blank') : null;
+      const online = UI.paym === 'online' && onlineReady(o.kind) && pr;
       window.scrollTo(0, 0);
-      return save().then(err => {
-        if (err) { o.done = ''; o.err = friendly(err); UI.flash = ''; if (w) w.close(); return; }
-        if (w) w.location = payLink(o.kind === 'mem' && PAY.membership ? PAY.membership : PAY.balance, u, `${u.username}: ${o.kind}`);
+      return save().then(async err => {
+        if (err) { o.done = ''; o.err = friendly(err); UI.flash = ''; return; }
+        if (!online) return;
+        try {
+          const r = await stripeGo(pr.kind === 'mem' ? 'membership' : 'checkout', pr.kind === 'mem' ? { id: pr.id } : { items: [pr] });
+          location.href = r.url;
+        } catch (e) { UI.flash = `${e.message} Your spot is held; you can pay from the Payments page.`; }
       });
     }
     save(); window.scrollTo(0, 0);
-    if (UI.paym === 'online' && onlineReady(o.kind)) { const url = o.kind === 'mem' && PAY.membership ? PAY.membership : PAY.balance; window.open(payLink(url, u, `${u.username}: ${o.kind}`), '_blank', 'noopener'); }
   },
   paym(a) { UI.paym = a.dataset.val; },
+  stripePay() { return stripeAct('checkout', {}); },
+  stripeMem(a) { return stripeAct('membership', { id: a.dataset.id }); },
+  stripePortal() { return stripeAct('portal', {}); },
+  async stripeInvoice(a) {
+    try {
+      const r = await stripeGo('invoice', { kind: a.dataset.kind, id: a.dataset.id });
+      await loadRemote(); UI.flash = `Invoice ${r.number || ''} emailed. It will show as paid here when the customer pays it.`;
+    } catch (e) { UI.flash = e.message; }
+  },
   changePw() {
     const u = me(), f = UI.pwc; f.err = ''; f.ok = ''; if (!u) return;
     if (LIVE) return (async () => {
@@ -1632,10 +1677,10 @@ const ACT = {
     S.regs.filter(g => g.classId === c.id && g.status === 'active').forEach(g => { const amt = refund ? refundRef('reg', g.id, g.paid || 0, 'class cancelled') : 0; tot += amt; notify(g.email, `${c.name} cancelled`, `${c.name} has been cancelled. ${amt ? 'Refund ' + money(amt) + '.' : ''}`); });
     UI.flash = `Cancelled ${c.name}${tot ? ` and refunded ${money(tot)}` : ''}. Its court time is free again.`; UI.confirm = null; save(); },
   // memberships
-  runBilling() { let n = 0, tot = 0; for (const m of S.members) if (m.status === 'active' && m.nextBill <= TODAY()) { charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); n++; tot += m.price; }
+  runBilling() { let n = 0, tot = 0; for (const m of S.members) if (m.status === 'active' && !m.autopay && m.nextBill <= TODAY()) { charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); n++; tot += m.price; }
     UI.flash = `Billed ${n} member${n === 1 ? '' : 's'}, ${money(tot)}.`; save(); },
   billOne(a) { const m = find('members', a.dataset.id); charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(m.nextBill, 1); UI.flash = `Charged ${m.name} ${money(m.price)}.`; save(); },
-  memCancel(a) { const m = find('members', a.dataset.id); m.status = 'cancelled'; m.cancelledAt = TODAY(); notify(m.email, 'Membership cancelled', `Your gym-access membership is cancelled. Access continues until ${fmtD(m.nextBill)}.`); UI.confirm = null; save(); },
+  memCancel(a) { const m = find('members', a.dataset.id); if (m.stripeSub && LIVE) stripeGo('cancelMembership', { id: m.id }).catch(e => { UI.flash = e.message; render(); }); m.status = 'cancelled'; m.cancelledAt = TODAY(); notify(m.email, 'Membership cancelled', `Your gym-access membership is cancelled. Access continues until ${fmtD(m.nextBill)}.`); UI.confirm = null; save(); },
   memReact(a) { const m = find('members', a.dataset.id), t = TODAY(); m.status = 'active';
     if (m.nextBill <= t) { charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); m.nextBill = addMonths(t, 1); } UI.flash = `${m.name} is active again.`; save(); },
   memAdd() { const f = UI.nm; f.err = ''; if (!f.name.trim()) return void (f.err = 'Enter a name.'); if (!validEmail(f.email)) return void (f.err = 'Enter a valid email.');
