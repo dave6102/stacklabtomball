@@ -34,6 +34,14 @@ async function apply(txnId: string, kind: string, id: string, amount: number, de
   console.log(data ? "recorded" : "already recorded", txnId, kind, id, amount);
 }
 
+async function refund(txnId: string, of: string, amount: number, desc: string, ref: Record<string, unknown>) {
+  const { data, error } = await admin.rpc("apply_stripe_refund", {
+    p_txn_id: txnId, p_refund_of: of, p_amount: amount, p_desc: desc, p_stripe: ref,
+  });
+  if (error) throw error;
+  console.log(data ? "refund recorded" : "refund already recorded", txnId, of, amount);
+}
+
 async function memberIdFor(subId: string | null | undefined) {
   if (!subId) return null;
   const sub = await stripe.subscriptions.retrieve(subId);
@@ -95,6 +103,48 @@ async function handle(event: Stripe.Event) {
         : { status: "active", cancelledAt: "", autopay: true };
       if (ended) patch.stripeSub = null;
       await admin.rpc("patch_item", { p_kind: "mem", p_item_id: memberId, p_patch: patch });
+      return;
+    }
+
+    case "charge.refunded": {
+      // Refunds made from the website are already recorded (same txn id, so this is a no-op);
+      // refunds made in the Stripe app/dashboard are recorded here so the site's books match.
+      const ch = event.data.object as Stripe.Charge;
+      const pi = typeof ch.payment_intent === "string" ? ch.payment_intent : ch.payment_intent?.id;
+      const invId = typeof (ch as any).invoice === "string" ? (ch as any).invoice : (ch as any).invoice?.id;
+      const refunds = await stripe.refunds.list({ charge: ch.id, limit: 100 });
+      for (const re of refunds.data) {
+        if (re.status === "failed" || re.status === "canceled") continue;
+        const seen = await admin.from("txns").select("id").eq("data->stripe->>refund", re.id).limit(1);
+        if (seen.error) throw seen.error;
+        if (seen.data?.length) continue;
+        const ref = { refund: re.id, payment_intent: pi ?? null };
+        if (re.metadata?.txn) {
+          const { data } = await admin.from("txns").select("data").eq("id", re.metadata.txn).maybeSingle();
+          await refund(`stripe_${re.id}`, re.metadata.txn, re.amount / 100, `Refund: ${data?.data?.desc ?? "payment"}`, ref);
+          continue;
+        }
+        // Dashboard refund: spread it over this charge's payments, oldest first.
+        const orig: any[] = [];
+        for (const [col, val] of [["payment_intent", pi], ["invoice", invId]] as const) {
+          if (!val) continue;
+          const { data, error } = await admin.from("txns").select("data").eq(`data->stripe->>${col}`, val);
+          if (error) throw error;
+          for (const r of data ?? []) if (Number(r.data.amount) > 0 && !orig.some((o) => o.id === r.data.id)) orig.push(r.data);
+        }
+        orig.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        let left = re.amount / 100;
+        for (const t of orig) {
+          if (left <= 0) break;
+          const { data: prev } = await admin.from("txns").select("data").eq("data->>refundOf", t.id);
+          const avail = Math.round((Number(t.amount) + (prev ?? []).reduce((a: number, r: any) => a + Number(r.data.amount), 0)) * 100) / 100;
+          const amt = Math.round(Math.min(left, avail) * 100) / 100;
+          if (amt <= 0) continue;
+          await refund(`stripe_${re.id}_${t.id}`, t.id, amt, `Refund: ${t.desc ?? "payment"} (refunded in Stripe)`, ref);
+          left = Math.round((left - amt) * 100) / 100;
+        }
+        if (left > 0) console.log("refund not matched to a site payment", re.id, left);
+      }
       return;
     }
 

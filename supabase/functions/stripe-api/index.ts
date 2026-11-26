@@ -8,6 +8,8 @@
 //   portal            {}                       Stripe customer portal: card on file, receipts, cancel
 //   invoice           { kind, id }             owner only: email a Stripe invoice for an amount due
 //   cancelMembership  { id }                   owner only: stop autopay at the end of the paid month
+//   refund            { txn } | { kind, id }   send a card payment back through Stripe (owner; or a
+//                                              customer right after cancelling their own booking online)
 
 import Stripe from "npm:stripe@17.7.0";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -91,6 +93,55 @@ async function myDues(user: any): Promise<Item[]> {
     }
   }
   return out;
+}
+
+// ---- refunds ----------------------------------------------------------------
+// A Stripe payment is a txn whose id starts with "stripe_" and amount > 0. Refunds
+// go back to the card through Stripe and are recorded with apply_stripe_refund.
+const isStripePayment = (t: any) => String(t?.id ?? "").startsWith("stripe_") && Number(t?.amount) > 0;
+
+async function refundedSoFar(txnId: string) {
+  const { data, error } = await admin.from("txns").select("data").eq("data->>refundOf", txnId);
+  if (error) throw error;
+  return r2((data ?? []).reduce((a: number, r: any) => a - Number(r.data?.amount ?? 0), 0));
+}
+
+async function paymentIntentOf(t: any): Promise<string> {
+  const s = t.stripe ?? {};
+  if (s.payment_intent) return String(s.payment_intent);
+  if (s.invoice) {
+    const inv = await stripe.invoices.retrieve(String(s.invoice));
+    const pi = typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent?.id;
+    if (pi) return pi;
+  }
+  throw new Oops("This payment can't be refunded online. Refund it in the Stripe app instead.");
+}
+
+// Refunds up to `want` dollars (default: everything still unrefunded) of one Stripe payment.
+async function refundOne(t: any, want: number | undefined, why: string) {
+  const done = await refundedSoFar(t.id);
+  const left = r2(Number(t.amount) - done);
+  const amt = r2(Math.min(want ?? left, left));
+  if (amt <= 0) return 0;
+  const pi = await paymentIntentOf(t);
+  const re = await stripe.refunds.create(
+    { payment_intent: pi, amount: cents(amt), metadata: { txn: t.id, why: why.slice(0, 200) } },
+    { idempotencyKey: `refund_${t.id}_${cents(done)}_${cents(amt)}` },
+  );
+  const { error } = await admin.rpc("apply_stripe_refund", {
+    p_txn_id: `stripe_${re.id}`, p_refund_of: t.id, p_amount: amt,
+    p_desc: `Refund: ${t.desc ?? "payment"}${why ? ` (${why})` : ""}`, p_stripe: { refund: re.id, payment_intent: pi },
+  });
+  if (error) throw error;
+  return amt;
+}
+
+async function stripePaymentsFor(kind: string, id: string) {
+  const { data, error } = await admin.from("txns").select("data")
+    .eq("data->ref->>kind", kind).eq("data->ref->>id", id).like("id", "stripe_%");
+  if (error) throw error;
+  return (data ?? []).map((r: any) => r.data).filter(isStripePayment)
+    .sort((a: any, b: any) => String(a.at).localeCompare(String(b.at)));
 }
 
 async function handle(req: Request) {
@@ -181,6 +232,43 @@ async function handle(req: Request) {
       const invoice = { id: sent.id, number: sent.number, url: sent.hosted_invoice_url, amount: it.amount, at: new Date().toISOString(), status: "sent" };
       await admin.rpc("patch_item", { p_kind: it.kind, p_item_id: it.id, p_patch: { invoice } });
       return { url: sent.hosted_invoice_url, number: sent.number };
+    }
+
+    case "refund": {
+      // { txn, amount?, why? }  owner: refund one card payment
+      // { kind, id, amount?, why? }  owner, or a customer for their own booking they just cancelled online
+      const why = String(body.why ?? "").trim();
+      const want = body.amount == null ? undefined : r2(Number(body.amount));
+      if (want != null && !(want > 0)) throw new Oops("Enter an amount to refund.");
+      if (body.txn) {
+        if (!isOwner) throw new Oops("Owners only.", 403);
+        const { data } = await admin.from("txns").select("data").eq("id", String(body.txn)).maybeSingle();
+        if (!data || !isStripePayment(data.data)) throw new Oops("That card payment was not found.", 404);
+        return { refunded: await refundOne(data.data, want, why || "owner refund") };
+      }
+      const kind = String(body.kind), id = String(body.id);
+      if (!TABLE[kind]) throw new Oops("Unknown item type.");
+      if (!isOwner) {
+        const it = await loadItem(kind, id);
+        const d = it.row.data ?? {};
+        const ok = kind === "res" && it.row.user_id === user.id && d.status === "cancelled" &&
+          String(d.cancel?.reason ?? "").startsWith("Cancelled by customer online") && !d.cancel?.stripeRefunded;
+        if (!ok) throw new Oops("Refunds are handled by the front desk. Please contact StackLab.", 403);
+      }
+      let left = want, total = 0;
+      for (const t of await stripePaymentsFor(kind, id)) {
+        if (left != null && left <= 0) break;
+        const got = await refundOne(t, left, why || (isOwner ? "owner refund" : "cancelled by customer"));
+        total = r2(total + got); if (left != null) left = r2(left - got);
+      }
+      if (!isOwner && total > 0) {
+        const { data } = await admin.from(TABLE[kind]).select("data").eq("id", id).maybeSingle();
+        const c = data?.data?.cancel ?? {};
+        await admin.rpc("patch_item", { p_kind: kind, p_item_id: id, p_patch: { cancel: {
+          ...c, refund: total, stripeRefunded: true,
+          reason: String(c.reason ?? "").replace(/ \(refund due: [^)]*\)$/, "") } } });
+      }
+      return { refunded: total };
     }
 
     case "cancelMembership": {

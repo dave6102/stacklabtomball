@@ -364,12 +364,23 @@ function save() {
   if (!LIVE) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} return Promise.resolve(null); }
   if (!READY) return Promise.resolve(null);
   clearTimeout(saveT);
-  const p = flushQ.then(flush).then(() => null, async e => {
-    console.error(e);
+  const p = flushQ.then(flush).then(sendRefunds).then(() => null, async e => {
+    console.error(e); REFUNDQ = [];
     try { await loadRemote(); } catch (x) {}
     UI.flash = friendly(e); render(); return e;
   });
   flushQ = p; return p;
+}
+async function sendRefunds() {
+  if (!REFUNDQ.length) return;
+  const q = REFUNDQ; REFUNDQ = []; const bad = [];
+  for (const r of q) {
+    try { await stripeGo('refund', r); }
+    catch (e) { const t = S.txns.find(x => x.id === r.txn); bad.push(`${money(r.amount)}${t ? ' for ' + t.desc : ''}: ${e.message}`); }
+  }
+  await loadRemote();
+  if (bad.length) UI.flash = `Card refund did not go through for ${bad.join('; ')} Refund it in the Stripe app instead.`;
+  render();
 }
 function saveSoon() { if (!LIVE) return save(); clearTimeout(saveT); saveT = setTimeout(save, 500); }
 async function refreshSession() {
@@ -486,8 +497,13 @@ function charge(type, desc, amount, method, ref) {
   S.txns.push(t); return t;
 }
 const refundedOf = t => r2(S.txns.filter(x => x.refundOf === t.id).reduce((a, x) => a - x.amount, 0));
+// Card payments made online are refunded through Stripe (the 'stripe-api' function records the refund
+// and lowers what the item shows as paid); desk payments are only recorded here.
+const isCardOnline = t => LIVE && STRIPE_ON && String(t.id).startsWith('stripe_') && t.amount > 0;
+let REFUNDQ = [];
 function refundTxn(t, amt, why) {
-  amt = r2(Math.min(amt, t.amount - refundedOf(t))); if (amt <= 0) return 0;
+  amt = r2(Math.min(amt, t.amount - refundedOf(t) - REFUNDQ.filter(q => q.txn === t.id).reduce((a, q) => a + q.amount, 0))); if (amt <= 0) return 0;
+  if (isCardOnline(t)) { REFUNDQ.push({ txn: t.id, amount: amt, why: why || '' }); return amt; }
   S.txns.push({ id: uid('t'), at: nowISO(), type: 'refund', desc: `Refund: ${t.desc}${why ? ' (' + why + ')' : ''}`, amount: -amt, method: t.method, ref: t.ref, refundOf: t.id });
   if (t.ref && t.ref.kind === 'res') { const r = S.reservations.find(x => x.id === t.ref.id); if (r) r.paid = r2(r.paid - amt); }
   if (t.ref && t.ref.kind === 'reg') { const g = S.regs.find(x => x.id === t.ref.id); if (g) g.paid = r2((g.paid || 0) - amt); }
@@ -1473,7 +1489,12 @@ const ACT = {
     const u = me(), r = find('reservations', a.dataset.id); UI.confirm = null;
     if (LIVE) return DB.rpc('cancel_my_reservation', { rid: a.dataset.id }).then(async ({ error }) => {
       if (error) return void (UI.flash = friendly(error));
-      await loadRemote(); UI.flash = `Cancelled ${r.code}.${r.paid > 0 ? ' The front desk will refund what you paid.' : ''}`;
+      let back = 0;
+      if (r.paid > 0 && STRIPE_ON && S.txns.some(t => isCardOnline(t) && t.ref && t.ref.kind === 'res' && t.ref.id === r.id)) {
+        try { back = (await stripeGo('refund', { kind: 'res', id: r.id })).refunded || 0; } catch (e) { console.error(e); }
+      }
+      const desk = r2(r.paid - back);
+      await loadRemote(); UI.flash = `Cancelled ${r.code}.${back > 0 ? ` ${money(back)} is being refunded to your card. It usually arrives in 5–10 days.` : ''}${desk > 0 ? ` The front desk will refund the other ${money(desk)} you paid.` : ''}`;
     });
     if (!u || !r || r.customer.email.toLowerCase() !== u.email.toLowerCase() || !canSelfCancel(r)) return;
     const refund = r.paid > 0 ? refundRef('res', r.id, r.paid, 'cancelled by customer') : 0;
@@ -1638,7 +1659,7 @@ const ACT = {
     const refund = d.refund === 'full' && r.paid > 0 ? refundRef('res', r.id, r.paid, 'cancelled') : 0;
     r.status = 'cancelled'; r.cancel = { at: nowISO(), refund, keep: d.after === 'keep', reason: d.reason.trim() };
     if (d.after === 'keep') S.blocks.push({ id: uid('b'), date: r.date, resources: r.resources, start: r.start, end: r.end, reason: `Held (cancelled ${r.code})` });
-    if (d.notify && r.customer.email) notify(r.customer.email, `Booking ${r.code} cancelled`, `${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)} is cancelled.${d.reason ? ' ' + d.reason.trim() + '.' : ''} ${refund ? 'Refund: ' + money(refund) + ' to your card.' : 'No refund.'}`);
+    if (d.notify && r.customer.email) notify(r.customer.email, `Booking ${r.code} cancelled`, `${resLabel(r.resources)}, ${fmtD(r.date)} ${fmtT(r.start)}–${fmtT(r.end)} is cancelled.${d.reason ? ' ' + d.reason.trim() + '.' : ''} ${refund ? 'Refund: ' + money(refund) + '.' : 'No refund.'}`);
     UI.flash = `Cancelled ${r.code}${refund ? `, refunded ${money(refund)}` : ''}. Time ${d.after === 'keep' ? 'kept blocked' : 'is open again'}.`; UI.panel = null; save();
   },
   goClass(a) { UI.otab = 'classes'; UI.oclass = a.dataset.id; UI.panel = null; },
@@ -1687,7 +1708,8 @@ const ACT = {
     const t = TODAY(), m = { id: uid('m'), name: f.name.trim(), email: f.email.trim(), start: t, price: S.membership, status: 'active', nextBill: addMonths(t, 1), cancelledAt: '' };
     S.members.push(m); charge('membership', `Gym-access membership: ${m.name}`, m.price, 'card', { kind: 'mem', id: m.id }); UI.nm = { name: '', email: '', err: '' }; UI.flash = `Added ${m.name}.`; save(); },
   // payments + settings
-  refundTx(a) { const x = S.txns.find(t => t.id === a.dataset.id); const amt = refundTxn(x, x.amount, 'owner refund'); UI.flash = `Refunded ${money(amt)}.`; UI.confirm = null; save(); },
+  refundTx(a) { const x = S.txns.find(t => t.id === a.dataset.id); const card = isCardOnline(x); const amt = refundTxn(x, x.amount, 'owner refund');
+    UI.flash = card ? `Refunding ${money(amt)} to the customer's card. It reaches them in 5–10 days.` : `Recorded a ${money(amt)} refund. Give the customer their money back at the desk.`; UI.confirm = null; save(); },
   hoursToggle(a) { const i = +a.dataset.i; S.hours[i] = S.hours[i] ? null : [360, 1380]; save(); },
   reset() { try { localStorage.removeItem(KEY); } catch (e) {} seed(); UI.panel = null; UI.confirm = null; UI.flash = 'Demo data reset.'; },
 };
